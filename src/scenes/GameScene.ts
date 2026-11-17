@@ -34,7 +34,10 @@ export class GameScene extends Phaser.Scene {
   private turn: TeamSide = 'home';
   private selected: PlayerSprite | null = null;
   private settleSince = 0;
+  private resolveMs = 0;
   private resolveHandled = false;
+  private flickingSide: TeamSide = 'home';
+  private turnToken = 0;
   private kickoffLock = true;
   private clockPausedAt: number | null = null;
 
@@ -74,6 +77,9 @@ export class GameScene extends Phaser.Scene {
     this.charge = 0;
     this.charging = false;
     this.resolveHandled = false;
+    this.resolveMs = 0;
+    this.flickingSide = 'home';
+    this.turnToken = 0;
     this.clockPausedAt = null;
   }
 
@@ -114,8 +120,11 @@ export class GameScene extends Phaser.Scene {
     this.constrainBall();
 
     if (this.phase === 'resolving') {
+      this.resolveMs += delta;
       this.checkGoals();
       if (this.phase !== 'resolving') return;
+      // Require a minimum resolve window so velocity can apply before settle checks
+      if (this.resolveMs < 280) return;
       if (this.allSettled()) {
         this.settleSince += delta;
         if (this.settleSince >= FLICK.settleMs && !this.resolveHandled) {
@@ -378,13 +387,14 @@ export class GameScene extends Phaser.Scene {
     this.turn = side;
     this.phase = 'input';
     this.settleSince = 0;
-    this.resolveHandled = false;
+    this.resolveMs = 0;
     this.charge = 0;
     this.charging = false;
     this.clearSelection();
-    this.resumeClock();
+    const token = ++this.turnToken;
 
     if (side === 'home') {
+      this.resumeClock();
       this.aim.enabled = true;
       this.selectDisc(this.homeDiscs[0] ?? null);
       this.turnText.setText('Blue turn — flick a disc');
@@ -392,13 +402,15 @@ export class GameScene extends Phaser.Scene {
         'Drag back on Blue · F / Enter: quick flick to ball · 1–3 select · Space charge',
       );
     } else {
+      this.pauseClock();
       this.aim.enabled = false;
       this.aim.cancel();
-      this.pauseClock();
       this.turnText.setText('Red AI thinking…');
       this.hintText.setText('Wait — opponent flick');
-      this.time.delayedCall(850, () => {
-        if (this.phase === 'input' && this.turn === 'away') this.runAiTurn();
+      this.time.delayedCall(900, () => {
+        if (token !== this.turnToken) return;
+        if (this.phase !== 'input' || this.turn !== 'away') return;
+        this.runAiTurn();
       });
     }
   }
@@ -432,7 +444,9 @@ export class GameScene extends Phaser.Scene {
     this.aim.cancel();
     this.phase = 'resolving';
     this.settleSince = 0;
+    this.resolveMs = 0;
     this.resolveHandled = false;
+    this.flickingSide = r.disc.team;
     this.pauseClock();
     this.turnText.setText(r.disc.team === 'away' ? 'Red flick…' : 'Resolving…');
     this.hintText.setText('');
@@ -479,7 +493,8 @@ export class GameScene extends Phaser.Scene {
 
     // First contact after kickoff clears direct-goal lock conceptually for next shots
     this.kickoffLock = false;
-    const next: TeamSide = this.turn === 'home' ? 'away' : 'home';
+    // Use the side that just flicked (not this.turn) so we never skip AI
+    const next: TeamSide = this.flickingSide === 'home' ? 'away' : 'home';
     this.beginTurn(next);
   }
 
