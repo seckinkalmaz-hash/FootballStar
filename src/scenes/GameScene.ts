@@ -327,6 +327,15 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(40);
 
+    this.add
+      .text(12, GAME_HEIGHT - 14, 'flick-v3', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '11px',
+        color: '#66bb6a',
+      })
+      .setOrigin(0, 1)
+      .setDepth(40);
+
     this.hintText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT - 18, '', {
         fontFamily: 'system-ui, sans-serif',
@@ -398,6 +407,7 @@ export class GameScene extends Phaser.Scene {
       this.aim.enabled = true;
       this.selectDisc(this.homeDiscs[0] ?? null);
       this.turnText.setText('Blue turn — flick a disc');
+      this.turnText.setColor('#e8f5e9');
       this.hintText.setText(
         'Drag back on Blue · F / Enter: quick flick to ball · 1–3 select · Space charge',
       );
@@ -405,9 +415,15 @@ export class GameScene extends Phaser.Scene {
       this.pauseClock();
       this.aim.enabled = false;
       this.aim.cancel();
-      this.turnText.setText('Red AI thinking…');
+      this.turnText.setText('RED TURN — AI thinking');
+      this.turnText.setColor('#ef9a9a');
       this.hintText.setText('Wait — opponent flick');
-      this.time.delayedCall(900, () => {
+      this.bannerText.setText('RED TURN').setAlpha(0.85);
+      this.time.delayedCall(700, () => {
+        if (token !== this.turnToken) return;
+        this.bannerText.setAlpha(0);
+      });
+      this.time.delayedCall(1000, () => {
         if (token !== this.turnToken) return;
         if (this.phase !== 'input' || this.turn !== 'away') return;
         this.runAiTurn();
