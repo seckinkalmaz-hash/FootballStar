@@ -8,13 +8,17 @@ Yellow-arrow aim + power % + dotted cone · blocky players · Training + Match.
 
 ## Play
 
+**Live (GitHub Pages):** https://seckinkalmaz-hash.github.io/FootballStar/?autostart=1
+
+Local:
+
 ```bash
 npm install
 npm run dev
 ```
 
-- Training (reference look): `http://127.0.0.1:5173/?autostart=1`
-- Match 3v3: `http://127.0.0.1:5173/?autostart=3`
+- Training: `/?autostart=1`
+- Match 3v3: `/?autostart=3`
 
 ## Controls
 
