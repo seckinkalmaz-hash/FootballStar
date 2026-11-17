@@ -434,12 +434,23 @@ export class GameScene extends Phaser.Scene {
       this.turnText.setColor('#ef9a9a');
       this.hintText.setText('Wait — opponent flick');
       this.bannerText.setText('RED TURN').setAlpha(0.9);
+      this.writeDebug();
+      this.logFs(`beginTurn away token=${this.turnToken}`);
+      document.body.style.outline = '8px solid #e53935';
       const token = this.turnToken;
-      this.aiTimer = setTimeout(() => {
+      this.aiTimer = window.setTimeout(() => {
+        this.logFs(`aiTimer fire token=${token} cur=${this.turnToken} phase=${this.phase}`);
         if (token !== this.turnToken || this.phase !== 'red_wait') return;
+        document.body.style.outline = '';
         this.runAiTurn();
-      }, 1500);
+      }, 2500);
     }
+  }
+
+  private logFs(msg: string): void {
+    const w = window as Window & { __fsLog?: string[] };
+    w.__fsLog = w.__fsLog ?? [];
+    w.__fsLog.push(`${Date.now()}: ${msg}`);
   }
 
   private selectBySlot(slot: number): void {
@@ -523,6 +534,7 @@ export class GameScene extends Phaser.Scene {
     this.kickoffLock = false;
     // Use the side that just flicked (not this.turn) so we never skip AI
     const next: TeamSide = this.flickingSide === 'home' ? 'away' : 'home';
+    this.logFs(`afterResolve flickSide=${this.flickingSide} → next=${next}`);
     this.beginTurn(next);
   }
 
