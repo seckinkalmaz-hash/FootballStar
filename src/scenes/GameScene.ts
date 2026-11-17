@@ -113,6 +113,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_t: number, delta: number): void {
+    this.writeDebug();
     if (this.phase === 'ended' || this.phase === 'goal') return;
 
     this.syncClock();
@@ -512,6 +513,20 @@ export class GameScene extends Phaser.Scene {
     // Use the side that just flicked (not this.turn) so we never skip AI
     const next: TeamSide = this.flickingSide === 'home' ? 'away' : 'home';
     this.beginTurn(next);
+  }
+
+  private writeDebug(): void {
+    const line = `phase=${this.phase} turn=${this.turn} flickSide=${this.flickingSide} token=${this.turnToken}`;
+    (window as Window & { __fsDebug?: string }).__fsDebug = line;
+    let el = document.getElementById('fs-debug');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fs-debug';
+      el.style.cssText =
+        'position:fixed;left:8px;top:8px;z-index:9999;background:#000c;color:#0f0;font:12px monospace;padding:4px 8px;pointer-events:none';
+      document.body.appendChild(el);
+    }
+    el.textContent = line;
   }
 
   private pauseClock(): void {
