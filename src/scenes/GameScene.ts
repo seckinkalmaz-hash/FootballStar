@@ -1,54 +1,56 @@
 import Phaser from 'phaser';
 import {
   BALL,
+  DISC,
+  FLICK,
   GAME_HEIGHT,
   GAME_WIDTH,
   MATCH,
   PITCH,
-  PLAYER,
   type MatchOptions,
   type SquadSize,
   type TeamSide,
 } from '../config';
-import { SimpleAI } from '../ai/SimpleAI';
+import { planAiFlick } from '../ai/FlickAI';
 import { BallSprite } from '../entities/BallSprite';
 import { PlayerSprite } from '../entities/PlayerSprite';
-import { TouchControls } from '../ui/TouchControls';
+import { FlickAim, type FlickResult } from '../ui/FlickAim';
 
-type MatchState = 'playing' | 'goal' | 'ended';
+type Phase = 'input' | 'resolving' | 'goal' | 'ended';
 
 export class GameScene extends Phaser.Scene {
   private squadSize: SquadSize = 3;
-  private players: PlayerSprite[] = [];
-  private homeTeam: PlayerSprite[] = [];
-  private awayTeam: PlayerSprite[] = [];
-  private human!: PlayerSprite;
+  private discs: PlayerSprite[] = [];
+  private homeDiscs: PlayerSprite[] = [];
+  private awayDiscs: PlayerSprite[] = [];
   private ball!: BallSprite;
-  private ai = new SimpleAI();
-  private touch!: TouchControls;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd!: {
-    W: Phaser.Input.Keyboard.Key;
-    A: Phaser.Input.Keyboard.Key;
-    S: Phaser.Input.Keyboard.Key;
-    D: Phaser.Input.Keyboard.Key;
-  };
-  private kickKey!: Phaser.Input.Keyboard.Key;
+  private aim!: FlickAim;
 
   private scoreHome = 0;
   private scoreAway = 0;
   private timeLeft = MATCH.durationSec;
-  private state: MatchState = 'playing';
+  private matchStartedAt = 0;
+  private phase: Phase = 'input';
+  private turn: TeamSide = 'home';
+  private selected: PlayerSprite | null = null;
+  private settleSince = 0;
+  private kickoffLock = true;
+
   private scoreText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
+  private turnText!: Phaser.GameObjects.Text;
   private bannerText!: Phaser.GameObjects.Text;
-  private pitchBounds!: Phaser.Geom.Rectangle;
-  private goalTop!: number;
-  private goalBottom!: number;
-  private lastPointerKick = false;
-  private matchStartedAt = 0;
+  private hintText!: Phaser.GameObjects.Text;
+
+  private goalTop = 0;
+  private goalBottom = 0;
   private uiHits: { bounds: () => Phaser.Geom.Rectangle; action: () => void }[] = [];
-  private rematchBtn?: Phaser.GameObjects.Rectangle;
+
+  private aimAngle = 0;
+  private charge = 0;
+  private charging = false;
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private spaceKey!: Phaser.Input.Keyboard.Key;
 
   constructor() {
     super('Game');
@@ -59,12 +61,16 @@ export class GameScene extends Phaser.Scene {
     this.scoreHome = 0;
     this.scoreAway = 0;
     this.timeLeft = MATCH.durationSec;
-    this.state = 'playing';
-    this.players = [];
-    this.homeTeam = [];
-    this.awayTeam = [];
+    this.phase = 'input';
+    this.turn = 'home';
+    this.discs = [];
+    this.homeDiscs = [];
+    this.awayDiscs = [];
+    this.selected = null;
     this.uiHits = [];
-    this.rematchBtn = undefined;
+    this.kickoffLock = true;
+    this.charge = 0;
+    this.charging = false;
   }
 
   create(): void {
@@ -72,91 +78,85 @@ export class GameScene extends Phaser.Scene {
     this.spawnTeams();
     this.ball = new BallSprite(this, GAME_WIDTH / 2, GAME_HEIGHT / 2);
 
-    this.physics.add.collider(this.players, this.players);
-    this.physics.add.collider(this.players, this.ball, undefined, undefined, this);
+    this.physics.add.collider(this.discs, this.discs);
+    this.physics.add.collider(this.discs, this.ball);
     this.physics.world.setBounds(
-      this.pitchBounds.x,
-      this.pitchBounds.y,
-      this.pitchBounds.width,
-      this.pitchBounds.height,
+      PITCH.margin,
+      PITCH.margin,
+      GAME_WIDTH - PITCH.margin * 2,
+      GAME_HEIGHT - PITCH.margin * 2,
     );
 
+    this.aim = new FlickAim(this);
+    this.aim.setHandler((r) => this.applyFlick(r));
+
     this.setupInput();
-    this.touch = new TouchControls(this);
     this.createHud();
     this.resetPositions('home');
     this.matchStartedAt = this.time.now;
+    this.beginTurn('home');
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('demo') === '1') {
+      this.time.delayedCall(600, () => this.runDemoFlicks());
+    }
   }
 
-  update(_time: number, delta: number): void {
-    if (this.state === 'ended') {
-      for (const p of this.players) {
-        const body = p.body as Phaser.Physics.Arcade.Body;
-        body.setAcceleration(0, 0);
-        body.setVelocity(0, 0);
-      }
-      return;
-    }
-
-    if (this.state === 'goal') {
-      for (const p of this.players) {
-        const body = p.body as Phaser.Physics.Arcade.Body;
-        body.setAcceleration(0, 0);
-        body.setVelocity(0, 0);
-      }
-      return;
-    }
+  update(_t: number, delta: number): void {
+    if (this.phase === 'ended' || this.phase === 'goal') return;
 
     this.syncClock();
-    this.handleHumanInput();
-    this.updateAI(delta);
-    this.ball.applyFriction();
-    this.constrainBallToPitch();
-    this.checkGoals();
-    this.tryHumanKick();
+
+    this.constrainBall();
+
+    if (this.phase === 'resolving') {
+      if (this.allSettled()) {
+        this.settleSince += delta;
+        if (this.settleSince >= FLICK.settleMs) {
+          this.afterResolve();
+        }
+      } else {
+        this.settleSince = 0;
+      }
+      this.checkGoals();
+      return;
+    }
+
+    // input phase
+    this.handleKeyboardCharge(delta);
   }
 
   private drawPitch(): void {
     const m = PITCH.margin;
-    this.pitchBounds = new Phaser.Geom.Rectangle(m, m, GAME_WIDTH - m * 2, GAME_HEIGHT - m * 2);
     this.goalTop = GAME_HEIGHT / 2 - PITCH.goalWidth / 2;
     this.goalBottom = GAME_HEIGHT / 2 + PITCH.goalWidth / 2;
 
     const g = this.add.graphics();
     g.fillStyle(PITCH.grassDark, 1);
     g.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-
-    // Stripe grass
     g.fillStyle(PITCH.grassLight, 1);
-    const stripeW = 48;
-    for (let x = m; x < GAME_WIDTH - m; x += stripeW * 2) {
-      g.fillRect(x, m, stripeW, GAME_HEIGHT - m * 2);
+    for (let x = m; x < GAME_WIDTH - m; x += 96) {
+      g.fillRect(x, m, 48, GAME_HEIGHT - m * 2);
     }
-
     g.lineStyle(3, PITCH.lineColor, 0.9);
     g.strokeRect(m, m, GAME_WIDTH - m * 2, GAME_HEIGHT - m * 2);
-
-    // Halfway
     g.lineBetween(GAME_WIDTH / 2, m, GAME_WIDTH / 2, GAME_HEIGHT - m);
-    g.strokeCircle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 64);
+    g.strokeCircle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 70);
     g.fillStyle(PITCH.lineColor, 1);
     g.fillCircle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 4);
 
-    // Penalty boxes
-    const boxW = 90;
-    const boxH = 180;
+    const boxW = 100;
+    const boxH = 200;
     g.strokeRect(m, GAME_HEIGHT / 2 - boxH / 2, boxW, boxH);
     g.strokeRect(GAME_WIDTH - m - boxW, GAME_HEIGHT / 2 - boxH / 2, boxW, boxH);
 
-    // Goals (visual nets)
-    g.fillStyle(0xffffff, 0.15);
+    g.fillStyle(0xffffff, 0.14);
     g.fillRect(m - PITCH.goalDepth, this.goalTop, PITCH.goalDepth, PITCH.goalWidth);
     g.fillRect(GAME_WIDTH - m, this.goalTop, PITCH.goalDepth, PITCH.goalWidth);
     g.lineStyle(4, 0xfffde7, 1);
     g.strokeRect(m - PITCH.goalDepth, this.goalTop, PITCH.goalDepth, PITCH.goalWidth);
     g.strokeRect(GAME_WIDTH - m, this.goalTop, PITCH.goalDepth, PITCH.goalWidth);
 
-    // Goal mouths open: disable world bounds on goal openings via custom ball clamp
     this.add
       .text(m + 8, m + 6, MATCH.teams.home.name, {
         fontFamily: 'system-ui, sans-serif',
@@ -175,21 +175,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnTeams(): void {
-    const formations = this.formationSlots(this.squadSize);
-    // Prefer midfielder as human in 3v3 (index 1); in 2v2 use first slot
-    const humanIndex = this.squadSize === 3 ? 1 : 0;
-    formations.home.forEach((pos, i) => {
-      const control = i === humanIndex ? 'human' : 'ai';
-      const p = new PlayerSprite(this, pos.x, pos.y, 'home', i, control);
-      this.homeTeam.push(p);
-      this.players.push(p);
-      if (control === 'human') this.human = p;
+    const slots = this.formationSlots(this.squadSize);
+    slots.home.forEach((pos, i) => {
+      const d = new PlayerSprite(this, pos.x, pos.y, 'home', i);
+      // Selection / drag handled at scene level (more reliable with Scale.FIT)
+      this.homeDiscs.push(d);
+      this.discs.push(d);
     });
-
-    formations.away.forEach((pos, i) => {
-      const p = new PlayerSprite(this, pos.x, pos.y, 'away', i, 'ai');
-      this.awayTeam.push(p);
-      this.players.push(p);
+    slots.away.forEach((pos, i) => {
+      const d = new PlayerSprite(this, pos.x, pos.y, 'away', i);
+      this.awayDiscs.push(d);
+      this.discs.push(d);
     });
   }
 
@@ -201,45 +197,91 @@ export class GameScene extends Phaser.Scene {
     if (size === 2) {
       return {
         home: [
-          { x: 180, y: cy - 50 },
-          { x: 280, y: cy + 50 },
+          { x: 200, y: cy - 70 },
+          { x: 280, y: cy + 70 },
         ],
         away: [
-          { x: GAME_WIDTH - 180, y: cy + 50 },
-          { x: GAME_WIDTH - 280, y: cy - 50 },
+          { x: GAME_WIDTH - 200, y: cy + 70 },
+          { x: GAME_WIDTH - 280, y: cy - 70 },
         ],
       };
     }
     return {
       home: [
-        { x: 150, y: cy },
-        { x: 260, y: cy - 70 },
-        { x: 260, y: cy + 70 },
+        { x: 160, y: cy },
+        { x: 260, y: cy - 90 },
+        { x: 260, y: cy + 90 },
       ],
       away: [
-        { x: GAME_WIDTH - 150, y: cy },
-        { x: GAME_WIDTH - 260, y: cy + 70 },
-        { x: GAME_WIDTH - 260, y: cy - 70 },
+        { x: GAME_WIDTH - 160, y: cy },
+        { x: GAME_WIDTH - 260, y: cy + 90 },
+        { x: GAME_WIDTH - 260, y: cy - 90 },
       ],
     };
   }
 
   private setupInput(): void {
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (this.phase !== 'input' || this.turn !== 'home' || !this.aim.enabled) return;
+      // Ignore MENU hit zone
+      if (p.worldX > GAME_WIDTH - 100 && p.worldY < 50) return;
+      const hit = this.hitHomeDisc(p.worldX, p.worldY);
+      if (!hit) return;
+      this.selectDisc(hit);
+      this.aim.begin(hit);
+      this.aim.updatePull(p.worldX, p.worldY);
+    });
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (!this.aim.isPulling) return;
+      this.aim.updatePull(p.worldX, p.worldY);
+    });
+    this.input.on('pointerup', () => {
+      if (!this.aim.isPulling) return;
+      this.aim.release();
+    });
+
     if (!this.input.keyboard) return;
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.wasd = this.input.keyboard.addKeys('W,A,S,D') as typeof this.wasd;
-    this.kickKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // Ignore UI stick / kick button regions roughly on left/right bottom
-      if (pointer.x < 200 && pointer.y > GAME_HEIGHT - 180) return;
-      if (pointer.x > GAME_WIDTH - 180 && pointer.y > GAME_HEIGHT - 180) return;
-      this.lastPointerKick = true;
-    });
+    this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    this.input.keyboard.on('keydown-ONE', () => this.selectBySlot(0));
+    this.input.keyboard.on('keydown-TWO', () => this.selectBySlot(1));
+    this.input.keyboard.on('keydown-THREE', () => this.selectBySlot(2));
+    // Instant flick toward ball (keyboard-friendly)
+    this.input.keyboard.on('keydown-F', () => this.quickFlickTowardBall(0.72));
+    this.input.keyboard.on('keydown-ENTER', () => this.quickFlickTowardBall(0.65));
+  }
+
+  private hitHomeDisc(x: number, y: number): PlayerSprite | null {
+    let best: PlayerSprite | null = null;
+    let bestD = DISC.radius + 18;
+    for (const d of this.homeDiscs) {
+      const dist = Phaser.Math.Distance.Between(x, y, d.x, d.y);
+      if (dist <= bestD) {
+        bestD = dist;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  private quickFlickTowardBall(power01: number): void {
+    if (this.phase !== 'input' || this.turn !== 'home') return;
+    const disc = this.selected ?? this.homeDiscs[0];
+    if (!disc) return;
+    this.selectDisc(disc);
+    const angle = Phaser.Math.Angle.Between(disc.x, disc.y, this.ball.x, this.ball.y);
+    this.aim.fire(disc, angle, power01);
+  }
+
+  private runDemoFlicks(): void {
+    if (this.phase !== 'input' || this.turn !== 'home') return;
+    this.quickFlickTowardBall(0.8);
   }
 
   private createHud(): void {
     this.scoreText = this.add
-      .text(GAME_WIDTH / 2, 18, this.scoreString(), {
+      .text(GAME_WIDTH / 2, 14, this.scoreString(), {
         fontFamily: 'Georgia, serif',
         fontSize: '28px',
         color: '#ffffff',
@@ -247,20 +289,38 @@ export class GameScene extends Phaser.Scene {
         strokeThickness: 4,
       })
       .setOrigin(0.5, 0)
-      .setDepth(40)
-      .setScrollFactor(0);
+      .setDepth(40);
 
     this.timerText = this.add
-      .text(GAME_WIDTH / 2, 50, this.timeString(), {
+      .text(GAME_WIDTH / 2, 46, this.timeString(), {
         fontFamily: 'system-ui, sans-serif',
-        fontSize: '18px',
+        fontSize: '16px',
         color: '#fff59d',
         stroke: '#000000',
         strokeThickness: 3,
       })
       .setOrigin(0.5, 0)
-      .setDepth(40)
-      .setScrollFactor(0);
+      .setDepth(40);
+
+    this.turnText = this.add
+      .text(GAME_WIDTH / 2, 70, '', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '15px',
+        color: '#e8f5e9',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(40);
+
+    this.hintText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 18, '', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '13px',
+        color: '#c8e6c9',
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(40);
 
     this.bannerText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, '', {
@@ -279,7 +339,6 @@ export class GameScene extends Phaser.Scene {
       .rectangle(GAME_WIDTH - 52, 28, 72, 28, 0x1b5e20, 0.9)
       .setStrokeStyle(1, 0xa5d6a7)
       .setDepth(40)
-      .setScrollFactor(0)
       .setInteractive({ useHandCursor: true });
     this.add
       .text(GAME_WIDTH - 52, 28, 'MENU', {
@@ -288,17 +347,14 @@ export class GameScene extends Phaser.Scene {
         color: '#c8e6c9',
       })
       .setOrigin(0.5)
-      .setDepth(41)
-      .setScrollFactor(0);
+      .setDepth(41);
     const goMenu = () => this.scene.start('Menu');
     menuBg.on('pointerdown', goMenu);
     this.uiHits.push({ bounds: () => menuBg.getBounds(), action: goMenu });
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      const x = pointer.worldX;
-      const y = pointer.worldY;
       for (const hit of this.uiHits) {
-        if (Phaser.Geom.Rectangle.Contains(hit.bounds(), x, y)) {
+        if (Phaser.Geom.Rectangle.Contains(hit.bounds(), pointer.worldX, pointer.worldY)) {
           hit.action();
           return;
         }
@@ -306,84 +362,119 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (this.input.keyboard) {
-      // M is more reliable than Esc (browsers often swallow Escape)
       this.input.keyboard.on('keydown-M', goMenu);
-      this.input.keyboard.on('keydown-ESC', goMenu);
       this.input.keyboard.on('keydown-R', () => {
-        if (this.state === 'ended') this.scene.restart({ squadSize: this.squadSize });
+        if (this.phase === 'ended') this.scene.restart({ squadSize: this.squadSize });
       });
     }
   }
 
-  private handleHumanInput(): void {
-    const body = this.human.body as Phaser.Physics.Arcade.Body;
-    let ax = 0;
-    let ay = 0;
+  private beginTurn(side: TeamSide): void {
+    this.turn = side;
+    this.phase = 'input';
+    this.settleSince = 0;
+    this.charge = 0;
+    this.charging = false;
+    this.clearSelection();
 
-    if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) ax -= 1;
-    if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) ax += 1;
-    if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) ay -= 1;
-    if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) ay += 1;
-
-    const stick = this.touch.getAxis();
-    if (stick.lengthSq() > 0.01) {
-      ax = stick.x;
-      ay = stick.y;
-    }
-
-    if (ax !== 0 || ay !== 0) {
-      const len = Math.hypot(ax, ay) || 1;
-      body.setAcceleration((ax / len) * PLAYER.accel, (ay / len) * PLAYER.accel);
-      body.setMaxSpeed(PLAYER.speed);
+    if (side === 'home') {
+      this.aim.enabled = true;
+      this.selectDisc(this.homeDiscs[0] ?? null);
+      this.turnText.setText('Blue turn — flick a disc');
+      this.hintText.setText(
+        'Drag back on Blue · F / Enter: quick flick to ball · 1–3 select · Space charge',
+      );
     } else {
-      body.setAcceleration(0, 0);
+      this.aim.enabled = false;
+      this.aim.cancel();
+      this.turnText.setText('Red AI thinking…');
+      this.hintText.setText('Wait — opponent flick');
+      this.time.delayedCall(700 + Math.random() * 400, () => this.runAiTurn());
     }
   }
 
-  private tryHumanKick(): void {
-    const now = this.time.now;
-    const keyKick = this.kickKey ? Phaser.Input.Keyboard.JustDown(this.kickKey) : false;
-    const wantKick = keyKick || this.touch.consumeKick() || this.lastPointerKick;
-    this.lastPointerKick = false;
-    if (!wantKick || !this.human.canKick(now)) return;
+  private selectBySlot(slot: number): void {
+    if (this.phase !== 'input' || this.turn !== 'home') return;
+    const d = this.homeDiscs.find((x) => x.slot === slot);
+    if (d) this.selectDisc(d);
+  }
 
-    const dist = Phaser.Math.Distance.Between(this.human.x, this.human.y, this.ball.x, this.ball.y);
-    if (dist > PLAYER.kickRange) return;
+  private selectDisc(disc: PlayerSprite | null): void {
+    for (const d of this.homeDiscs) d.setSelected(false);
+    this.selected = disc;
+    disc?.setSelected(true);
+    if (disc) {
+      this.aimAngle = Phaser.Math.Angle.Between(disc.x, disc.y, this.ball.x, this.ball.y);
+    }
+  }
 
-    const angle = Phaser.Math.Angle.Between(this.human.x, this.human.y, this.ball.x, this.ball.y);
-    const body = this.ball.body as Phaser.Physics.Arcade.Body;
-    const hBody = this.human.body as Phaser.Physics.Arcade.Body;
-    const boost = 1 + Math.min(hBody.speed / PLAYER.speed, 1) * 0.25;
-    body.setVelocity(
-      Math.cos(angle) * PLAYER.kickPower * boost,
-      Math.sin(angle) * PLAYER.kickPower * boost,
-    );
-    this.human.markKick(now);
+  private clearSelection(): void {
+    for (const d of this.discs) d.setSelected(false);
+    this.selected = null;
+  }
 
-    // Tiny juice
+  private applyFlick(r: FlickResult): void {
+    if (this.phase !== 'input') return;
+    if (this.turn === 'home' && r.disc.team !== 'home') return;
+    if (this.turn === 'away' && r.disc.team !== 'away') return;
+
+    this.aim.enabled = false;
+    this.aim.cancel();
+    this.phase = 'resolving';
+    this.settleSince = 0;
+    this.turnText.setText('Resolving…');
+    this.hintText.setText('');
+
+    const body = r.disc.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(r.dirX * r.power, r.dirY * r.power);
+
     this.tweens.add({
-      targets: this.ball,
-      scale: 1.15,
-      duration: 60,
+      targets: r.disc,
+      scale: 1.12,
+      duration: 80,
       yoyo: true,
     });
   }
 
-  private updateAI(delta: number): void {
-    for (const p of this.players) {
-      if (p.control !== 'ai') continue;
-      const mates = p.team === 'home' ? this.homeTeam : this.awayTeam;
-      const foes = p.team === 'home' ? this.awayTeam : this.homeTeam;
-      this.ai.update(p, this.ball, mates, foes, delta);
-    }
+  private runAiTurn(): void {
+    if (this.phase !== 'input' || this.turn !== 'away') return;
+    const plan = planAiFlick('away', this.awayDiscs, this.ball);
+    plan.disc.setSelected(true);
+    this.time.delayedCall(200, () => {
+      this.applyFlick({
+        disc: plan.disc,
+        dirX: plan.dirX,
+        dirY: plan.dirY,
+        power: plan.power,
+      });
+    });
   }
 
-  private constrainBallToPitch(): void {
+  private allSettled(): boolean {
+    if ((this.ball.body as Phaser.Physics.Arcade.Body).speed > FLICK.settleSpeed) return false;
+    for (const d of this.discs) {
+      if ((d.body as Phaser.Physics.Arcade.Body).speed > FLICK.settleSpeed) return false;
+    }
+    return true;
+  }
+
+  private afterResolve(): void {
+    if (this.phase !== 'resolving') return;
+    for (const d of this.discs) d.stopHard();
+    this.ball.stopHard();
+    this.clearSelection();
+
+    // First contact after kickoff clears direct-goal lock conceptually for next shots
+    this.kickoffLock = false;
+    const next: TeamSide = this.turn === 'home' ? 'away' : 'home';
+    this.beginTurn(next);
+  }
+
+  private constrainBall(): void {
     const body = this.ball.body as Phaser.Physics.Arcade.Body;
     const m = PITCH.margin;
     const r = BALL.radius;
 
-    // Top / bottom
     if (this.ball.y - r < m) {
       this.ball.y = m + r;
       body.setVelocityY(Math.abs(body.velocity.y) * BALL.bounce);
@@ -394,10 +485,8 @@ export class GameScene extends Phaser.Scene {
 
     const inGoalY = this.ball.y > this.goalTop && this.ball.y < this.goalBottom;
 
-    // Left side
     if (this.ball.x - r < m) {
       if (inGoalY) {
-        // allow into goal mouth for scoring check
         if (this.ball.x < m - PITCH.goalDepth + r) {
           this.ball.x = m - PITCH.goalDepth + r;
           body.setVelocityX(Math.abs(body.velocity.x) * BALL.bounce);
@@ -408,7 +497,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Right side
     if (this.ball.x + r > GAME_WIDTH - m) {
       if (inGoalY) {
         if (this.ball.x > GAME_WIDTH - m + PITCH.goalDepth - r) {
@@ -423,63 +511,96 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkGoals(): void {
+    if (this.phase !== 'resolving') return;
     const m = PITCH.margin;
     const inGoalY = this.ball.y > this.goalTop + 4 && this.ball.y < this.goalBottom - 4;
 
-    if (inGoalY && this.ball.x < m - 6) {
+    if (inGoalY && this.ball.x < m - 8) {
+      // Soft kickoff lock: first shot of restart can't score for attacker — give ball back feel
+      if (this.kickoffLock && this.turn === 'home') {
+        this.rejectKickoffGoal();
+        return;
+      }
       this.onGoal('away');
-    } else if (inGoalY && this.ball.x > GAME_WIDTH - m + 6) {
+    } else if (inGoalY && this.ball.x > GAME_WIDTH - m + 8) {
+      if (this.kickoffLock && this.turn === 'home') {
+        this.rejectKickoffGoal();
+        return;
+      }
       this.onGoal('home');
     }
   }
 
+  private rejectKickoffGoal(): void {
+    // Pull ball back to center-ish and continue resolve → turn swap
+    this.ball.setPosition(GAME_WIDTH / 2, GAME_HEIGHT / 2);
+    this.ball.stopHard();
+    this.kickoffLock = false;
+    this.bannerText.setText('No goal from kick-off').setAlpha(1);
+    this.time.delayedCall(700, () => this.bannerText.setAlpha(0));
+  }
+
   private onGoal(scorer: TeamSide): void {
-    if (this.state !== 'playing') return;
-    this.state = 'goal';
+    if (this.phase === 'goal' || this.phase === 'ended') return;
+    this.phase = 'goal';
+    for (const d of this.discs) d.stopHard();
+    this.ball.stopHard();
+    this.aim.cancel();
+    this.aim.enabled = false;
+
     if (scorer === 'home') this.scoreHome += 1;
     else this.scoreAway += 1;
     this.scoreText.setText(this.scoreString());
 
     const name = MATCH.teams[scorer].name;
-    const pausedAt = this.time.now;
-    this.showBanner(`GOAL! ${name}`, 1200, () => {
-      // Don't burn match clock during celebration
-      this.matchStartedAt += this.time.now - pausedAt;
-      if (this.timeLeft <= 0) {
+    this.bannerText.setText(`GOAL! ${name}`).setAlpha(1);
+
+    const done =
+      this.scoreHome >= MATCH.goalsToWin ||
+      this.scoreAway >= MATCH.goalsToWin ||
+      this.timeLeft <= 0;
+
+    this.time.delayedCall(1100, () => {
+      if (done) {
         this.endMatch();
       } else {
-        this.resetPositions(scorer === 'home' ? 'away' : 'home');
-        this.state = 'playing';
         this.bannerText.setAlpha(0);
+        this.resetPositions(scorer === 'home' ? 'away' : 'home');
+        this.kickoffLock = true;
+        this.beginTurn(scorer === 'home' ? 'away' : 'home');
       }
     });
   }
 
   private syncClock(): void {
-    if (this.state !== 'playing') return;
+    if (this.phase === 'ended') return;
     const elapsed = Math.floor((this.time.now - this.matchStartedAt) / 1000);
     const left = Math.max(0, MATCH.durationSec - elapsed);
     if (left !== this.timeLeft) {
       this.timeLeft = left;
       this.timerText.setText(this.timeString());
     }
-    if (this.timeLeft <= 0) {
-      this.timeLeft = 0;
+    if (this.timeLeft <= 0 && this.phase === 'input') {
       this.endMatch();
     }
   }
 
   private endMatch(): void {
-    if (this.state === 'ended') return;
-    this.state = 'ended';
+    if (this.phase === 'ended') return;
+    this.phase = 'ended';
+    this.aim.enabled = false;
+    this.aim.cancel();
+
     let result = 'Draw';
     if (this.scoreHome > this.scoreAway) result = `${MATCH.teams.home.name} wins!`;
     else if (this.scoreAway > this.scoreHome) result = `${MATCH.teams.away.name} wins!`;
 
-    this.showBanner(`${result}\n${this.scoreString()}`, 0);
+    this.bannerText.setText(`${result}\n${this.scoreString()}`).setAlpha(1);
+    this.turnText.setText('');
+    this.hintText.setText('Press R to rematch');
 
     const restart = () => this.scene.restart({ squadSize: this.squadSize });
-    this.rematchBtn = this.add
+    const btn = this.add
       .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 78, 160, 48, 0x1b5e20, 1)
       .setStrokeStyle(2, 0xa5d6a7)
       .setDepth(46)
@@ -492,49 +613,76 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(47);
-    this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 120, 'or press R', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '14px',
-        color: '#a5d6a7',
-      })
-      .setOrigin(0.5)
-      .setDepth(47);
-
-    this.rematchBtn.on('pointerdown', restart);
-    this.uiHits.push({
-      bounds: () => this.rematchBtn!.getBounds(),
-      action: restart,
-    });
+    btn.on('pointerdown', restart);
+    this.uiHits.push({ bounds: () => btn.getBounds(), action: restart });
   }
 
   private resetPositions(kickOffTo: TeamSide): void {
     const slots = this.formationSlots(this.squadSize);
-    this.homeTeam.forEach((p, i) => {
+    this.homeDiscs.forEach((d, i) => {
       const s = slots.home[i];
-      p.setPosition(s.x, s.y);
-      const body = p.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(0, 0);
-      body.setAcceleration(0, 0);
+      d.setPosition(s.x, s.y);
+      d.stopHard();
     });
-    this.awayTeam.forEach((p, i) => {
+    this.awayDiscs.forEach((d, i) => {
       const s = slots.away[i];
-      p.setPosition(s.x, s.y);
-      const body = p.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(0, 0);
-      body.setAcceleration(0, 0);
+      d.setPosition(s.x, s.y);
+      d.stopHard();
     });
-
-    const offset = kickOffTo === 'home' ? -24 : 24;
+    const offset = kickOffTo === 'home' ? -20 : 20;
     this.ball.setPosition(GAME_WIDTH / 2 + offset, GAME_HEIGHT / 2);
-    const b = this.ball.body as Phaser.Physics.Arcade.Body;
-    b.setVelocity(0, 0);
+    this.ball.stopHard();
   }
 
-  private showBanner(text: string, holdMs: number, after?: () => void): void {
-    this.bannerText.setText(text).setAlpha(1);
-    if (holdMs <= 0) return;
-    this.time.delayedCall(holdMs, () => after?.());
+  private handleKeyboardCharge(delta: number): void {
+    if (this.phase !== 'input' || this.turn !== 'home' || !this.selected) return;
+
+    if (this.cursors?.left?.isDown) this.aimAngle -= 0.0025 * delta;
+    if (this.cursors?.right?.isDown) this.aimAngle += 0.0025 * delta;
+
+    if (
+      this.selected &&
+      (this.charging || this.cursors?.left?.isDown || this.cursors?.right?.isDown)
+    ) {
+      this.drawKeyboardAim();
+    }
+
+    if (this.spaceKey && Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+      this.charging = true;
+      this.charge = 0.15;
+    }
+    if (this.charging && this.spaceKey?.isDown) {
+      this.charge = Math.min(1, this.charge + delta / 900);
+      this.drawKeyboardAim();
+    }
+    if (this.charging && this.spaceKey && Phaser.Input.Keyboard.JustUp(this.spaceKey)) {
+      this.charging = false;
+      this.aim.fire(this.selected, this.aimAngle, this.charge);
+      this.charge = 0;
+      this.clearKeyboardAim();
+    }
+  }
+
+  private kbGfx?: Phaser.GameObjects.Graphics;
+
+  private drawKeyboardAim(): void {
+    if (!this.selected) return;
+    if (!this.kbGfx) this.kbGfx = this.add.graphics().setDepth(31);
+    const g = this.kbGfx;
+    g.clear();
+    const ax = this.selected.x;
+    const ay = this.selected.y;
+    const t = this.charge || 0.35;
+    const travel = 50 + t * 100;
+    const tx = ax + Math.cos(this.aimAngle) * travel;
+    const ty = ay + Math.sin(this.aimAngle) * travel;
+    g.lineStyle(4, 0xfff176, 0.95);
+    g.lineBetween(ax, ay, tx, ty);
+    g.strokeCircle(ax, ay, 26 + t * 10);
+  }
+
+  private clearKeyboardAim(): void {
+    this.kbGfx?.clear();
   }
 
   private scoreString(): string {
@@ -544,6 +692,6 @@ export class GameScene extends Phaser.Scene {
   private timeString(): string {
     const m = Math.floor(this.timeLeft / 60);
     const s = this.timeLeft % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')} · first to ${MATCH.goalsToWin}`;
   }
 }

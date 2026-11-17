@@ -12,17 +12,16 @@ export class BallSprite extends Phaser.Physics.Arcade.Image {
     body.setOffset(3, 3);
     body.setCollideWorldBounds(true);
     body.setBounce(BALL.bounce, BALL.bounce);
+    body.setDamping(false);
+    body.setDrag(60);
     body.setMaxSpeed(BALL.maxSpeed);
-    body.setDrag(8);
+    body.setMass(BALL.mass);
 
     this.setDepth(6);
   }
 
-  applyFriction(): void {
+  stopHard(): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
-    body.velocity.scale(BALL.friction);
-    if (body.speed < 8) {
-      body.setVelocity(0, 0);
-    }
+    body.setVelocity(0, 0);
   }
 }

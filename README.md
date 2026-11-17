@@ -1,6 +1,8 @@
 # FootballStar
 
-Personal Mini Soccer Stars–style arcade football prototype (Phase 1: single-player).
+Personal **Soccer Stars–style** flick soccer prototype (Phase 1: single-player).
+
+Turn-based table soccer: drag a disc back to set aim + power, release to şut/pas. Physics resolves, then the opponent plays.
 
 **Stack:** TypeScript · Phaser 3 · Vite  
 **Art:** Original simple geometry only
@@ -12,26 +14,25 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (default `http://127.0.0.1:5173`).
+Open the URL Vite prints (default `http://127.0.0.1:5173`).  
+Demo: `/?autostart=1`
 
 ```bash
-npm run build    # production build → dist/
-npm run preview  # serve dist/
+npm run build
+npm run preview
 ```
 
 ## Controls
 
-| Action | Keyboard | Touch |
+| Action | Mouse / touch | Keyboard |
 | --- | --- | --- |
-| Move | WASD or arrows | Virtual stick |
-| Kick | Space or click near ball | Kick button |
-| Menu | M (or MENU button) | MENU |
-| Rematch | R (end screen) | REMATCH |
+| Select disc | Click / tap a Blue disc | `1` / `2` / `3` |
+| Flick (şut / pas) | Drag **back**, release | Arrows aim · hold Space · release |
+| Menu | MENU | `M` |
+| Rematch | REMATCH | `R` |
 
-Pick **2v2** or **3v3** on the title screen (keys `2` / `3`, Enter to start). You control the starred Blue player; teammates and Red are AI. Matches last 90 seconds.
-
-Demo shortcut: open `/?autostart=1` to skip straight into a 3v3 match.
+Pick **2v2** or **3v3**. First to 3 goals wins (3:00 backup timer). You flick all Blue discs; Red is AI.
 
 ## Scope
 
-See the project plan: Phase 1 offline arcade MVP only (no multiplayer, career, or Matchday-Manager features).
+See `/docs` plan in the project store: flick match sim, not continuous WASD running soccer.
