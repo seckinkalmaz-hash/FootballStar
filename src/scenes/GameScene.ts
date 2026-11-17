@@ -16,7 +16,7 @@ import { BallSprite } from '../entities/BallSprite';
 import { PlayerSprite } from '../entities/PlayerSprite';
 import { FlickAim, type FlickResult } from '../ui/FlickAim';
 
-type Phase = 'input' | 'resolving' | 'goal' | 'ended';
+type Phase = 'input' | 'resolving' | 'red_wait' | 'goal' | 'ended';
 
 export class GameScene extends Phaser.Scene {
   private squadSize: SquadSize = 3;
@@ -38,8 +38,7 @@ export class GameScene extends Phaser.Scene {
   private resolveHandled = false;
   private flickingSide: TeamSide = 'home';
   private turnToken = 0;
-  private aiReadyAt = 0;
-  private aiFlickQueued = false;
+  private aiTimer: ReturnType <typeof setTimeout> | null = null;
   private kickoffLock = true;
   private clockPausedAt: number | null = null;
 
@@ -82,9 +81,15 @@ export class GameScene extends Phaser.Scene {
     this.resolveMs = 0;
     this.flickingSide = 'home';
     this.turnToken = 0;
-    this.aiReadyAt = 0;
-    this.aiFlickQueued = false;
+    this.clearAiTimer();
     this.clockPausedAt = null;
+  }
+
+  private clearAiTimer(): void {
+    if (this.aiTimer != null) {
+      clearTimeout(this.aiTimer);
+      this.aiTimer = null;
+    }
   }
 
   create(): void {
@@ -118,20 +123,20 @@ export class GameScene extends Phaser.Scene {
 
   update(_t: number, delta: number): void {
     this.writeDebug();
-    if (this.phase === 'ended' || this.phase === 'goal') return;
+    if (this.phase === 'ended' || this.phase === 'goal' || this.phase === 'red_wait') return;
 
     this.syncClock();
 
     this.constrainBall();
 
     if (this.phase === 'resolving') {
-      this.resolveMs += delta;
+      this.resolveMs += Math.min(delta, 50);
       this.checkGoals();
       if (this.phase !== 'resolving') return;
       // Require a minimum resolve window so velocity can apply before settle checks
-      if (this.resolveMs < 280) return;
+      if (this.resolveMs < 400) return;
       if (this.allSettled()) {
-        this.settleSince += delta;
+        this.settleSince += Math.min(delta, 50);
         if (this.settleSince >= FLICK.settleMs && !this.resolveHandled) {
           this.afterResolve();
         }
@@ -141,13 +146,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // input phase — use wall clock so a large Phaser delta can't skip Red's think time
-    if (this.turn === 'away' && this.phase === 'input') {
-      if (!this.aiFlickQueued && this.aiReadyAt > 0 && performance.now() >= this.aiReadyAt) {
-        this.aiFlickQueued = true;
-        this.runAiTurn();
-      }
-    } else if (this.turn === 'home' && this.phase === 'input') {
+    if (this.phase === 'input' && this.turn === 'home') {
       this.handleKeyboardCharge(delta);
     }
   }
@@ -405,18 +404,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private beginTurn(side: TeamSide): void {
+    this.clearAiTimer();
     this.turn = side;
-    this.phase = 'input';
     this.settleSince = 0;
     this.resolveMs = 0;
     this.charge = 0;
     this.charging = false;
-    this.aiFlickQueued = false;
     this.clearSelection();
     this.turnToken += 1;
 
     if (side === 'home') {
-      this.aiReadyAt = 0;
+      this.phase = 'input';
       this.resumeClock();
       this.aim.enabled = true;
       this.bannerText.setAlpha(0);
@@ -427,6 +425,8 @@ export class GameScene extends Phaser.Scene {
         'Drag back on Blue · F / Enter: quick flick to ball · 1–3 select · Space charge',
       );
     } else {
+      // Dedicated wait phase so nothing else can treat this as Blue input
+      this.phase = 'red_wait';
       this.pauseClock();
       this.aim.enabled = false;
       this.aim.cancel();
@@ -434,8 +434,11 @@ export class GameScene extends Phaser.Scene {
       this.turnText.setColor('#ef9a9a');
       this.hintText.setText('Wait — opponent flick');
       this.bannerText.setText('RED TURN').setAlpha(0.9);
-      // Wall-clock think time (survives huge Phaser delta spikes under automation)
-      this.aiReadyAt = performance.now() + 1400;
+      const token = this.turnToken;
+      this.aiTimer = setTimeout(() => {
+        if (token !== this.turnToken || this.phase !== 'red_wait') return;
+        this.runAiTurn();
+      }, 1500);
     }
   }
 
@@ -487,10 +490,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private runAiTurn(): void {
-    if (this.phase !== 'input' || this.turn !== 'away') return;
+    if (this.phase !== 'red_wait' || this.turn !== 'away') return;
     const plan = planAiFlick('away', this.awayDiscs, this.ball);
     plan.disc.setSelected(true);
     this.bannerText.setAlpha(0);
+    // applyFlick expects phase === 'input'
+    this.phase = 'input';
     this.applyFlick({
       disc: plan.disc,
       dirX: plan.dirX,
