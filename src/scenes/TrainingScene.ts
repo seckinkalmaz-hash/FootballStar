@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
-import { AIM, GAME_HEIGHT, GAME_WIDTH } from '../config';
+import { AIM, BALL, GAME_HEIGHT, GAME_WIDTH, PITCH } from '../config';
 import { KickAim } from '../ui/KickAim';
 
 /**
- * Mini Soccer Stars–style shot challenge: yellow arrow + % + dotted cone,
- * wall dummies, bullseye target — matches user reference screenshots.
+ * Shot-on-goal drill: aim the yellow arrow into the goal mouth.
+ * Wall dummies block the lane — not a billiard table.
  */
 export class TrainingScene extends Phaser.Scene {
   private aim!: KickAim;
@@ -16,7 +16,9 @@ export class TrainingScene extends Phaser.Scene {
   private hexes: Phaser.GameObjects.Container[] = [];
   private statusText!: Phaser.GameObjects.Text;
   private resolving = false;
+  private scoredThisShot = false;
   private player!: Phaser.Physics.Arcade.Image;
+  private goalLineY = 0;
 
   constructor() {
     super('Training');
@@ -26,30 +28,36 @@ export class TrainingScene extends Phaser.Scene {
     this.attempts = 0;
     this.hits = 0;
     this.resolving = false;
+    this.scoredThisShot = false;
     this.drawField();
     this.createHud();
 
-    this.player = this.physics.add.image(GAME_WIDTH / 2, GAME_HEIGHT - 110, 'player-home');
+    this.player = this.physics.add.image(GAME_WIDTH / 2, GAME_HEIGHT - 96, 'player-home');
     this.player.setDepth(5);
     const pb = this.player.body as Phaser.Physics.Arcade.Body;
     pb.setAllowGravity(false);
     pb.setImmovable(true);
 
-    this.ball = this.physics.add.image(GAME_WIDTH / 2, GAME_HEIGHT - 140, 'ball');
+    this.ball = this.physics.add.image(GAME_WIDTH / 2, GAME_HEIGHT - 128, 'ball');
     this.ball.setDepth(6);
     const bb = this.ball.body as Phaser.Physics.Arcade.Body;
-    bb.setCircle(11);
+    bb.setCircle(BALL.radius);
     bb.setOffset(3, 3);
-    bb.setBounce(0.55, 0.55);
+    bb.setBounce(0.2, 0.2);
     bb.setCollideWorldBounds(true);
-    bb.setDrag(40);
-    this.physics.world.setBounds(40, 40, GAME_WIDTH - 80, GAME_HEIGHT - 80);
+    bb.setDrag(BALL.drag);
+    this.physics.world.setBounds(40, 20, GAME_WIDTH - 80, GAME_HEIGHT - 60);
 
+    // Wall of blockers in front of the goal (MSS reference)
     this.walls = this.physics.add.staticGroup();
-    this.walls.create(GAME_WIDTH / 2 - 28, GAME_HEIGHT / 2 + 20, 'wall-dummy');
-    this.walls.create(GAME_WIDTH / 2 + 28, GAME_HEIGHT / 2 + 20, 'wall-dummy');
+    this.walls.create(GAME_WIDTH / 2 - 36, this.goalLineY + 78, 'wall-dummy');
+    this.walls.create(GAME_WIDTH / 2 + 36, this.goalLineY + 78, 'wall-dummy');
 
-    this.target = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 70, 'target-dummy').setDepth(4);
+    // Bullseye sits in the goal mouth — the thing you shoot at
+    this.target = this.add
+      .image(GAME_WIDTH / 2, this.goalLineY + 28, 'target-dummy')
+      .setDepth(4)
+      .setScale(0.95);
     this.physics.add.existing(this.target, true);
 
     this.physics.add.collider(this.ball, this.walls);
@@ -77,7 +85,7 @@ export class TrainingScene extends Phaser.Scene {
       this.input.keyboard.on('keydown-F', () => {
         if (this.resolving || !this.aim.enabled) return;
         const ang = -Math.PI / 2;
-        const power = AIM.minPower + (AIM.maxPower - AIM.minPower) * 0.62;
+        const power = AIM.minPower + (AIM.maxPower - AIM.minPower) * 0.7;
         this.fire(Math.cos(ang), Math.sin(ang), power);
       });
     }
@@ -85,13 +93,19 @@ export class TrainingScene extends Phaser.Scene {
 
   update(): void {
     if (!this.resolving) return;
+    this.checkGoalLine();
     const body = this.ball.body as Phaser.Physics.Arcade.Body;
-    if (body.speed < 20) {
+    if (body.speed < 24) {
       this.resolving = false;
       body.setVelocity(0, 0);
+      if (!this.scoredThisShot) {
+        this.statusText.setText('Miss — aim into the goal');
+      }
       if (this.attempts >= 3) {
-        this.statusText.setText(this.hits > 0 ? `Done — ${this.hits}/3 hits · M menu` : 'Missed all · M menu · or wait reset');
-        this.time.delayedCall(1200, () => {
+        this.statusText.setText(
+          this.hits > 0 ? `Done — ${this.hits}/3 on target · M menu` : '0/3 — try again',
+        );
+        this.time.delayedCall(1100, () => {
           this.attempts = 0;
           this.hits = 0;
           this.refreshHexes();
@@ -109,33 +123,65 @@ export class TrainingScene extends Phaser.Scene {
     g.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     g.fillStyle(0x43a047, 1);
     for (let x = 0; x < GAME_WIDTH; x += 80) g.fillRect(x, 0, 40, GAME_HEIGHT);
+
     g.lineStyle(1, 0xffffff, 0.14);
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 45; i++) {
       const x = Phaser.Math.Between(0, GAME_WIDTH);
       const y = Phaser.Math.Between(0, GAME_HEIGHT);
       g.lineBetween(x, y, x - 2, y + 16);
     }
-    g.lineStyle(3, 0xe8f5e9, 0.85);
-    g.strokeCircle(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40, 90);
-    g.lineBetween(40, GAME_HEIGHT / 2 - 40, GAME_WIDTH - 40, GAME_HEIGHT / 2 - 40);
+
+    // Goal at TOP of pitch — shoot upward
+    this.goalLineY = 72;
+    const gx = GAME_WIDTH / 2 - PITCH.goalWidth / 2;
+    const gw = PITCH.goalWidth;
+
+    g.fillStyle(0xffffff, 0.12);
+    g.fillRect(gx, 28, gw, this.goalLineY - 28);
+    g.lineStyle(5, 0xfffde7, 1);
+    g.strokeRect(gx, 28, gw, this.goalLineY - 28);
+    // Goal line
+    g.lineStyle(3, 0xffeb3b, 0.95);
+    g.lineBetween(gx, this.goalLineY, gx + gw, this.goalLineY);
+
+    // Penalty box
+    g.lineStyle(2, 0xe8f5e9, 0.75);
+    g.strokeRect(gx - 40, this.goalLineY, gw + 80, 110);
+
+    this.add
+      .text(GAME_WIDTH / 2, 10, 'GOAL', {
+        fontFamily: 'Georgia, serif',
+        fontSize: '16px',
+        color: '#fff59d',
+        stroke: '#000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(3);
   }
 
   private createHud(): void {
     this.hexes = [];
     const cx = GAME_WIDTH / 2;
     for (let i = 0; i < 3; i++) {
-      const c = this.add.container(cx - 56 + i * 56, 28);
-      const hex = this.add.polygon(0, 0, [0, -14, 12, -7, 12, 7, 0, 14, -12, 7, -12, -7], 0x1565c0, 0.35);
+      const c = this.add.container(cx - 56 + i * 56, GAME_HEIGHT - 48);
+      const hex = this.add.polygon(
+        0,
+        0,
+        [0, -14, 12, -7, 12, 7, 0, 14, -12, 7, -12, -7],
+        0x1565c0,
+        0.35,
+      );
       hex.setStrokeStyle(2, 0x90caf9);
       c.add(hex);
       this.hexes.push(c);
       if (i < 2) {
-        this.add.rectangle(cx - 28 + i * 56, 28, 28, 2, 0x90caf9, 0.7).setDepth(1);
+        this.add.rectangle(cx - 28 + i * 56, GAME_HEIGHT - 48, 28, 2, 0x90caf9, 0.7).setDepth(1);
       }
     }
 
     this.statusText = this.add
-      .text(cx, GAME_HEIGHT - 22, 'Drag to aim · yellow arrow + % · hit the bullseye', {
+      .text(cx, GAME_HEIGHT - 22, 'Shoot into the GOAL · drag yellow arrow · hit the bullseye', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '14px',
         color: '#e8f5e9',
@@ -158,85 +204,87 @@ export class TrainingScene extends Phaser.Scene {
   }
 
   private refreshHexes(): void {
-    this.hexes.forEach((c, i) => {
+    this.hexes.forEach((c) => {
       c.removeAll(true);
-      const hex = this.add.polygon(0, 0, [0, -14, 12, -7, 12, 7, 0, 14, -12, 7, -12, -7], 0x1565c0, 0.35);
+      const hex = this.add.polygon(
+        0,
+        0,
+        [0, -14, 12, -7, 12, 7, 0, 14, -12, 7, -12, -7],
+        0x1565c0,
+        0.35,
+      );
       hex.setStrokeStyle(2, 0x90caf9);
       c.add(hex);
-      if (i < this.attempts) {
-        const mark = this.add
-          .text(0, 0, i < this.hits ? '●' : '✕', {
-            fontFamily: 'system-ui, sans-serif',
-            fontSize: '16px',
-            color: i < this.hits ? '#81c784' : '#ef5350',
-          })
-          .setOrigin(0.5);
-        // Simplified: X for each attempt used; green if we already scored enough is messy —
-        // show X for misses counted after attempt index. Just mark attempts with X until hit tracked separately.
-        c.add(mark);
-      }
     });
   }
 
   private resetBall(): void {
-    this.ball.setPosition(GAME_WIDTH / 2, GAME_HEIGHT - 140);
+    this.scoredThisShot = false;
+    this.ball.setPosition(GAME_WIDTH / 2, GAME_HEIGHT - 128);
     const body = this.ball.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(0, 0);
-    this.player.setPosition(GAME_WIDTH / 2, GAME_HEIGHT - 100);
+    this.player.setPosition(GAME_WIDTH / 2, GAME_HEIGHT - 96);
     this.aim.showAt(this.ball.x, this.ball.y);
-    this.aim.setKeyboardAim(-Math.PI / 2, 0.55);
-    this.statusText.setText('Drag to aim · yellow arrow + % · hit the bullseye');
+    this.aim.setKeyboardAim(-Math.PI / 2, 0.6);
+    this.statusText.setText('Shoot into the GOAL · drag yellow arrow · hit the bullseye');
   }
 
   private fire(dirX: number, dirY: number, power: number): void {
     if (this.resolving) return;
     this.aim.hide();
     this.resolving = true;
+    this.scoredThisShot = false;
     this.attempts += 1;
-    // Mark attempt hex with provisional X; onHitTarget upgrades feel
-    this.hexes.forEach((c, i) => {
-      if (i === this.attempts - 1) {
-        c.removeAll(true);
-        const hex = this.add.polygon(0, 0, [0, -14, 12, -7, 12, 7, 0, 14, -12, 7, -12, -7], 0x1565c0, 0.35);
-        hex.setStrokeStyle(2, 0x90caf9);
-        c.add(hex);
-        c.add(
-          this.add
-            .text(0, 0, '✕', {
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: '16px',
-              color: '#ef5350',
-            })
-            .setOrigin(0.5),
-        );
-      }
-    });
+    this.markAttempt(this.attempts - 1, false);
     const body = this.ball.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(dirX * power, dirY * power);
+    this.statusText.setText('Shot!');
+  }
+
+  private markAttempt(idx: number, hit: boolean): void {
+    if (idx < 0 || idx >= this.hexes.length) return;
+    const c = this.hexes[idx];
+    c.removeAll(true);
+    const hex = this.add.polygon(
+      0,
+      0,
+      [0, -14, 12, -7, 12, 7, 0, 14, -12, 7, -12, -7],
+      hit ? 0x2e7d32 : 0x1565c0,
+      hit ? 0.55 : 0.35,
+    );
+    hex.setStrokeStyle(2, hit ? 0xa5d6a7 : 0x90caf9);
+    c.add(hex);
+    c.add(
+      this.add
+        .text(0, 0, hit ? '●' : '✕', {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '16px',
+          color: hit ? '#c8e6c9' : '#ef5350',
+        })
+        .setOrigin(0.5),
+    );
+  }
+
+  private checkGoalLine(): void {
+    if (this.scoredThisShot) return;
+    const gx = GAME_WIDTH / 2 - PITCH.goalWidth / 2;
+    const gw = PITCH.goalWidth;
+    if (
+      this.ball.y < this.goalLineY + 8 &&
+      this.ball.x > gx + 6 &&
+      this.ball.x < gx + gw - 6
+    ) {
+      this.onHitTarget();
+    }
   }
 
   private onHitTarget(): void {
-    if (!this.resolving) return;
+    if (!this.resolving || this.scoredThisShot) return;
+    this.scoredThisShot = true;
     this.hits += 1;
-    const idx = this.attempts - 1;
-    if (idx >= 0 && idx < this.hexes.length) {
-      const c = this.hexes[idx];
-      c.removeAll(true);
-      const hex = this.add.polygon(0, 0, [0, -14, 12, -7, 12, 7, 0, 14, -12, 7, -12, -7], 0x2e7d32, 0.55);
-      hex.setStrokeStyle(2, 0xa5d6a7);
-      c.add(hex);
-      c.add(
-        this.add
-          .text(0, 0, '●', {
-            fontFamily: 'system-ui, sans-serif',
-            fontSize: '16px',
-            color: '#c8e6c9',
-          })
-          .setOrigin(0.5),
-      );
-    }
-    this.statusText.setText('HIT!');
+    this.markAttempt(this.attempts - 1, true);
+    this.statusText.setText('GOAL!');
     const body = this.ball.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(body.velocity.x * 0.2, body.velocity.y * 0.2);
+    body.setVelocity(body.velocity.x * 0.15, body.velocity.y * 0.15);
   }
 }
