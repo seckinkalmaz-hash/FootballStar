@@ -74,7 +74,7 @@ export class SimpleAI {
     body.setAcceleration(Math.cos(angle) * PLAYER.accel * 0.75, Math.sin(angle) * PLAYER.accel * 0.75);
     body.setMaxSpeed(speed);
 
-    if (distBall <= PLAYER.kickRange && player.aiCooldown <= 0) {
+    if (distBall <= PLAYER.kickRange + 6 && player.aiCooldown <= 0) {
       this.tryKick(player, ball, attackX);
     }
   }
@@ -84,12 +84,17 @@ export class SimpleAI {
     if (!player.canKick(now)) return;
 
     const towardGoal = Phaser.Math.Angle.Between(ball.x, ball.y, attackX, GAME_HEIGHT / 2);
-    const noise = Phaser.Math.FloatBetween(-0.28, 0.28);
-    const power = PLAYER.kickPower * Phaser.Math.FloatBetween(0.75, 1.05);
+    // Prefer shooting when in attacking half
+    const attacking =
+      (player.team === 'home' && ball.x > GAME_WIDTH * 0.45) ||
+      (player.team === 'away' && ball.x < GAME_WIDTH * 0.55);
+    const noise = Phaser.Math.FloatBetween(attacking ? -0.18 : -0.32, attacking ? 0.18 : 0.32);
+    const power =
+      PLAYER.kickPower * Phaser.Math.FloatBetween(attacking ? 0.9 : 0.7, attacking ? 1.15 : 1.0);
     const body = ball.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(Math.cos(towardGoal + noise) * power, Math.sin(towardGoal + noise) * power);
     player.markKick(now);
-    player.aiCooldown = 220 + Math.random() * 180;
+    player.aiCooldown = 160 + Math.random() * 140;
   }
 
   private isClosestToBall(

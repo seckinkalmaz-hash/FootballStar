@@ -46,6 +46,9 @@ export class GameScene extends Phaser.Scene {
   private goalTop!: number;
   private goalBottom!: number;
   private lastPointerKick = false;
+  private matchStartedAt = 0;
+  private uiHits: { bounds: () => Phaser.Geom.Rectangle; action: () => void }[] = [];
+  private rematchBtn?: Phaser.GameObjects.Rectangle;
 
   constructor() {
     super('Game');
@@ -60,6 +63,8 @@ export class GameScene extends Phaser.Scene {
     this.players = [];
     this.homeTeam = [];
     this.awayTeam = [];
+    this.uiHits = [];
+    this.rematchBtn = undefined;
   }
 
   create(): void {
@@ -80,16 +85,11 @@ export class GameScene extends Phaser.Scene {
     this.touch = new TouchControls(this);
     this.createHud();
     this.resetPositions('home');
-
-    this.time.addEvent({
-      delay: 1000,
-      loop: true,
-      callback: () => this.tickClock(),
-    });
+    this.matchStartedAt = this.time.now;
   }
 
   update(_time: number, delta: number): void {
-    if (this.state !== 'playing') {
+    if (this.state === 'ended') {
       for (const p of this.players) {
         const body = p.body as Phaser.Physics.Arcade.Body;
         body.setAcceleration(0, 0);
@@ -98,6 +98,16 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.state === 'goal') {
+      for (const p of this.players) {
+        const body = p.body as Phaser.Physics.Arcade.Body;
+        body.setAcceleration(0, 0);
+        body.setVelocity(0, 0);
+      }
+      return;
+    }
+
+    this.syncClock();
     this.handleHumanInput();
     this.updateAI(delta);
     this.ball.applyFriction();
@@ -265,18 +275,44 @@ export class GameScene extends Phaser.Scene {
       .setDepth(45)
       .setAlpha(0);
 
-    const menu = this.add
-      .text(GAME_WIDTH - 16, 16, 'MENU', {
+    const menuBg = this.add
+      .rectangle(GAME_WIDTH - 52, 28, 72, 28, 0x1b5e20, 0.9)
+      .setStrokeStyle(1, 0xa5d6a7)
+      .setDepth(40)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(GAME_WIDTH - 52, 28, 'MENU', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '14px',
         color: '#c8e6c9',
-        backgroundColor: '#1b5e20aa',
-        padding: { x: 10, y: 6 },
       })
-      .setOrigin(1, 0)
-      .setDepth(40)
-      .setInteractive({ useHandCursor: true });
-    menu.on('pointerdown', () => this.scene.start('Menu'));
+      .setOrigin(0.5)
+      .setDepth(41)
+      .setScrollFactor(0);
+    const goMenu = () => this.scene.start('Menu');
+    menuBg.on('pointerdown', goMenu);
+    this.uiHits.push({ bounds: () => menuBg.getBounds(), action: goMenu });
+
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      const x = pointer.worldX;
+      const y = pointer.worldY;
+      for (const hit of this.uiHits) {
+        if (Phaser.Geom.Rectangle.Contains(hit.bounds(), x, y)) {
+          hit.action();
+          return;
+        }
+      }
+    });
+
+    if (this.input.keyboard) {
+      // M is more reliable than Esc (browsers often swallow Escape)
+      this.input.keyboard.on('keydown-M', goMenu);
+      this.input.keyboard.on('keydown-ESC', goMenu);
+      this.input.keyboard.on('keydown-R', () => {
+        if (this.state === 'ended') this.scene.restart({ squadSize: this.squadSize });
+      });
+    }
   }
 
   private handleHumanInput(): void {
@@ -284,10 +320,10 @@ export class GameScene extends Phaser.Scene {
     let ax = 0;
     let ay = 0;
 
-    if (this.cursors?.left.isDown || this.wasd?.A.isDown) ax -= 1;
-    if (this.cursors?.right.isDown || this.wasd?.D.isDown) ax += 1;
-    if (this.cursors?.up.isDown || this.wasd?.W.isDown) ay -= 1;
-    if (this.cursors?.down.isDown || this.wasd?.S.isDown) ay += 1;
+    if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) ax -= 1;
+    if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) ax += 1;
+    if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) ay -= 1;
+    if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) ay += 1;
 
     const stick = this.touch.getAxis();
     if (stick.lengthSq() > 0.01) {
@@ -306,10 +342,8 @@ export class GameScene extends Phaser.Scene {
 
   private tryHumanKick(): void {
     const now = this.time.now;
-    const wantKick =
-      Phaser.Input.Keyboard.JustDown(this.kickKey) ||
-      this.touch.consumeKick() ||
-      this.lastPointerKick;
+    const keyKick = this.kickKey ? Phaser.Input.Keyboard.JustDown(this.kickKey) : false;
+    const wantKick = keyKick || this.touch.consumeKick() || this.lastPointerKick;
     this.lastPointerKick = false;
     if (!wantKick || !this.human.canKick(now)) return;
 
@@ -407,7 +441,10 @@ export class GameScene extends Phaser.Scene {
     this.scoreText.setText(this.scoreString());
 
     const name = MATCH.teams[scorer].name;
+    const pausedAt = this.time.now;
     this.showBanner(`GOAL! ${name}`, 1200, () => {
+      // Don't burn match clock during celebration
+      this.matchStartedAt += this.time.now - pausedAt;
       if (this.timeLeft <= 0) {
         this.endMatch();
       } else {
@@ -418,10 +455,14 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private tickClock(): void {
+  private syncClock(): void {
     if (this.state !== 'playing') return;
-    this.timeLeft -= 1;
-    this.timerText.setText(this.timeString());
+    const elapsed = Math.floor((this.time.now - this.matchStartedAt) / 1000);
+    const left = Math.max(0, MATCH.durationSec - elapsed);
+    if (left !== this.timeLeft) {
+      this.timeLeft = left;
+      this.timerText.setText(this.timeString());
+    }
     if (this.timeLeft <= 0) {
       this.timeLeft = 0;
       this.endMatch();
@@ -429,6 +470,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private endMatch(): void {
+    if (this.state === 'ended') return;
     this.state = 'ended';
     let result = 'Draw';
     if (this.scoreHome > this.scoreAway) result = `${MATCH.teams.home.name} wins!`;
@@ -436,18 +478,34 @@ export class GameScene extends Phaser.Scene {
 
     this.showBanner(`${result}\n${this.scoreString()}`, 0);
 
-    const rematch = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 70, 'REMATCH', {
+    const restart = () => this.scene.restart({ squadSize: this.squadSize });
+    this.rematchBtn = this.add
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 78, 160, 48, 0x1b5e20, 1)
+      .setStrokeStyle(2, 0xa5d6a7)
+      .setDepth(46)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 78, 'REMATCH', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '22px',
         color: '#e8f5e9',
-        backgroundColor: '#1b5e20',
-        padding: { x: 16, y: 10 },
       })
       .setOrigin(0.5)
-      .setDepth(46)
-      .setInteractive({ useHandCursor: true });
-    rematch.on('pointerdown', () => this.scene.restart({ squadSize: this.squadSize }));
+      .setDepth(47);
+    this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 120, 'or press R', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '14px',
+        color: '#a5d6a7',
+      })
+      .setOrigin(0.5)
+      .setDepth(47);
+
+    this.rematchBtn.on('pointerdown', restart);
+    this.uiHits.push({
+      bounds: () => this.rematchBtn!.getBounds(),
+      action: restart,
+    });
   }
 
   private resetPositions(kickOffTo: TeamSide): void {

@@ -25,9 +25,12 @@ npm run preview  # serve dist/
 | --- | --- | --- |
 | Move | WASD or arrows | Virtual stick |
 | Kick | Space or click near ball | Kick button |
-| Menu | MENU (top-right) | MENU |
+| Menu | M (or MENU button) | MENU |
+| Rematch | R (end screen) | REMATCH |
 
-Pick **2v2** or **3v3** on the title screen. You control the starred Blue player; teammates and Red are AI. Matches last 90 seconds.
+Pick **2v2** or **3v3** on the title screen (keys `2` / `3`, Enter to start). You control the starred Blue player; teammates and Red are AI. Matches last 90 seconds.
+
+Demo shortcut: open `/?autostart=1` to skip straight into a 3v3 match.
 
 ## Scope
 
