@@ -338,15 +338,6 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(40);
 
-    this.add
-      .text(12, GAME_HEIGHT - 14, 'flick-v3', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '11px',
-        color: '#66bb6a',
-      })
-      .setOrigin(0, 1)
-      .setDepth(40);
-
     this.hintText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT - 18, '', {
         fontFamily: 'system-ui, sans-serif',
@@ -444,7 +435,7 @@ export class GameScene extends Phaser.Scene {
         if (token !== this.turnToken || this.phase !== 'red_wait') return;
         this.setDomTurn('RED FLICK…', '#b71c1c');
         this.runAiTurn();
-      }, 2500);
+      }, 1200);
     }
   }
 
