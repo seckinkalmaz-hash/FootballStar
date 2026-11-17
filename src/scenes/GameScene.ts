@@ -34,7 +34,9 @@ export class GameScene extends Phaser.Scene {
   private turn: TeamSide = 'home';
   private selected: PlayerSprite | null = null;
   private settleSince = 0;
+  private resolveHandled = false;
   private kickoffLock = true;
+  private clockPausedAt: number | null = null;
 
   private scoreText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
@@ -71,6 +73,8 @@ export class GameScene extends Phaser.Scene {
     this.kickoffLock = true;
     this.charge = 0;
     this.charging = false;
+    this.resolveHandled = false;
+    this.clockPausedAt = null;
   }
 
   create(): void {
@@ -110,15 +114,16 @@ export class GameScene extends Phaser.Scene {
     this.constrainBall();
 
     if (this.phase === 'resolving') {
+      this.checkGoals();
+      if (this.phase !== 'resolving') return;
       if (this.allSettled()) {
         this.settleSince += delta;
-        if (this.settleSince >= FLICK.settleMs) {
+        if (this.settleSince >= FLICK.settleMs && !this.resolveHandled) {
           this.afterResolve();
         }
       } else {
         this.settleSince = 0;
       }
-      this.checkGoals();
       return;
     }
 
@@ -373,9 +378,11 @@ export class GameScene extends Phaser.Scene {
     this.turn = side;
     this.phase = 'input';
     this.settleSince = 0;
+    this.resolveHandled = false;
     this.charge = 0;
     this.charging = false;
     this.clearSelection();
+    this.resumeClock();
 
     if (side === 'home') {
       this.aim.enabled = true;
@@ -387,9 +394,12 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.aim.enabled = false;
       this.aim.cancel();
+      this.pauseClock();
       this.turnText.setText('Red AI thinking…');
       this.hintText.setText('Wait — opponent flick');
-      this.time.delayedCall(700 + Math.random() * 400, () => this.runAiTurn());
+      this.time.delayedCall(850, () => {
+        if (this.phase === 'input' && this.turn === 'away') this.runAiTurn();
+      });
     }
   }
 
@@ -422,7 +432,9 @@ export class GameScene extends Phaser.Scene {
     this.aim.cancel();
     this.phase = 'resolving';
     this.settleSince = 0;
-    this.turnText.setText('Resolving…');
+    this.resolveHandled = false;
+    this.pauseClock();
+    this.turnText.setText(r.disc.team === 'away' ? 'Red flick…' : 'Resolving…');
     this.hintText.setText('');
 
     const body = r.disc.body as Phaser.Physics.Arcade.Body;
@@ -459,7 +471,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private afterResolve(): void {
-    if (this.phase !== 'resolving') return;
+    if (this.phase !== 'resolving' || this.resolveHandled) return;
+    this.resolveHandled = true;
     for (const d of this.discs) d.stopHard();
     this.ball.stopHard();
     this.clearSelection();
@@ -468,6 +481,16 @@ export class GameScene extends Phaser.Scene {
     this.kickoffLock = false;
     const next: TeamSide = this.turn === 'home' ? 'away' : 'home';
     this.beginTurn(next);
+  }
+
+  private pauseClock(): void {
+    if (this.clockPausedAt == null) this.clockPausedAt = this.time.now;
+  }
+
+  private resumeClock(): void {
+    if (this.clockPausedAt == null) return;
+    this.matchStartedAt += this.time.now - this.clockPausedAt;
+    this.clockPausedAt = null;
   }
 
   private constrainBall(): void {
@@ -573,14 +596,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncClock(): void {
-    if (this.phase === 'ended') return;
+    if (this.phase === 'ended' || this.clockPausedAt != null) return;
     const elapsed = Math.floor((this.time.now - this.matchStartedAt) / 1000);
     const left = Math.max(0, MATCH.durationSec - elapsed);
     if (left !== this.timeLeft) {
       this.timeLeft = left;
       this.timerText.setText(this.timeString());
     }
-    if (this.timeLeft <= 0 && this.phase === 'input') {
+    if (this.timeLeft <= 0 && this.phase === 'input' && this.turn === 'home') {
       this.endMatch();
     }
   }
