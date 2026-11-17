@@ -38,6 +38,8 @@ export class GameScene extends Phaser.Scene {
   private resolveHandled = false;
   private flickingSide: TeamSide = 'home';
   private turnToken = 0;
+  private aiThinkMs = 0;
+  private aiFlickQueued = false;
   private kickoffLock = true;
   private clockPausedAt: number | null = null;
 
@@ -80,6 +82,8 @@ export class GameScene extends Phaser.Scene {
     this.resolveMs = 0;
     this.flickingSide = 'home';
     this.turnToken = 0;
+    this.aiThinkMs = 0;
+    this.aiFlickQueued = false;
     this.clockPausedAt = null;
   }
 
@@ -138,7 +142,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     // input phase
-    this.handleKeyboardCharge(delta);
+    if (this.turn === 'away' && this.phase === 'input') {
+      this.aiThinkMs += delta;
+      if (!this.aiFlickQueued && this.aiThinkMs >= 1100) {
+        this.aiFlickQueued = true;
+        this.runAiTurn();
+      }
+    } else {
+      this.handleKeyboardCharge(delta);
+    }
   }
 
   private drawPitch(): void {
@@ -400,12 +412,15 @@ export class GameScene extends Phaser.Scene {
     this.resolveMs = 0;
     this.charge = 0;
     this.charging = false;
+    this.aiThinkMs = 0;
+    this.aiFlickQueued = false;
     this.clearSelection();
-    const token = ++this.turnToken;
+    this.turnToken += 1;
 
     if (side === 'home') {
       this.resumeClock();
       this.aim.enabled = true;
+      this.bannerText.setAlpha(0);
       this.selectDisc(this.homeDiscs[0] ?? null);
       this.turnText.setText('Blue turn — flick a disc');
       this.turnText.setColor('#e8f5e9');
@@ -419,16 +434,8 @@ export class GameScene extends Phaser.Scene {
       this.turnText.setText('RED TURN — AI thinking');
       this.turnText.setColor('#ef9a9a');
       this.hintText.setText('Wait — opponent flick');
-      this.bannerText.setText('RED TURN').setAlpha(0.85);
-      this.time.delayedCall(700, () => {
-        if (token !== this.turnToken) return;
-        this.bannerText.setAlpha(0);
-      });
-      this.time.delayedCall(1000, () => {
-        if (token !== this.turnToken) return;
-        if (this.phase !== 'input' || this.turn !== 'away') return;
-        this.runAiTurn();
-      });
+      this.bannerText.setText('RED TURN').setAlpha(0.9);
+      // AI flick is driven from update() via aiThinkMs (no delayedCall)
     }
   }
 
@@ -483,13 +490,12 @@ export class GameScene extends Phaser.Scene {
     if (this.phase !== 'input' || this.turn !== 'away') return;
     const plan = planAiFlick('away', this.awayDiscs, this.ball);
     plan.disc.setSelected(true);
-    this.time.delayedCall(200, () => {
-      this.applyFlick({
-        disc: plan.disc,
-        dirX: plan.dirX,
-        dirY: plan.dirY,
-        power: plan.power,
-      });
+    this.bannerText.setAlpha(0);
+    this.applyFlick({
+      disc: plan.disc,
+      dirX: plan.dirX,
+      dirY: plan.dirY,
+      power: plan.power,
     });
   }
 
