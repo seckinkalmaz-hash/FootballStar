@@ -53,8 +53,9 @@ export class KickAim {
     this.originY = y;
     this.visible = true;
     this.enabled = true;
+    // Default: slight pull "down" so travel aims up-screen (toward attack in Training)
     this.pullX = 0;
-    this.pullY = -40; // default forward hint
+    this.pullY = 48;
     this.draw();
   }
 

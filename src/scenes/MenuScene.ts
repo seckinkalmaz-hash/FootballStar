@@ -84,13 +84,13 @@ export class MenuScene extends Phaser.Scene {
     }
 
     const auto = new URLSearchParams(window.location.search).get('autostart');
-    if (auto === 'train' || auto === 'training') {
+    if (auto === 'train' || auto === 'training' || auto === '1') {
       this.time.delayedCall(200, () => this.scene.start('Training'));
+    } else if (auto === 'match') {
+      this.time.delayedCall(200, () => this.scene.start('Game', { squadSize: this.squadSize }));
     } else if (auto === '2' || auto === '3') {
       this.setSquad(Number(auto) as SquadSize);
       this.time.delayedCall(200, () => this.scene.start('Game', { squadSize: this.squadSize }));
-    } else if (auto === '1') {
-      this.time.delayedCall(200, () => this.scene.start('Training'));
     }
   }
 
