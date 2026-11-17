@@ -38,7 +38,7 @@ export class GameScene extends Phaser.Scene {
   private resolveHandled = false;
   private flickingSide: TeamSide = 'home';
   private turnToken = 0;
-  private aiThinkMs = 0;
+  private aiReadyAt = 0;
   private aiFlickQueued = false;
   private kickoffLock = true;
   private clockPausedAt: number | null = null;
@@ -82,7 +82,7 @@ export class GameScene extends Phaser.Scene {
     this.resolveMs = 0;
     this.flickingSide = 'home';
     this.turnToken = 0;
-    this.aiThinkMs = 0;
+    this.aiReadyAt = 0;
     this.aiFlickQueued = false;
     this.clockPausedAt = null;
   }
@@ -141,14 +141,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // input phase
+    // input phase — use wall clock so a large Phaser delta can't skip Red's think time
     if (this.turn === 'away' && this.phase === 'input') {
-      this.aiThinkMs += delta;
-      if (!this.aiFlickQueued && this.aiThinkMs >= 1100) {
+      if (!this.aiFlickQueued && this.aiReadyAt > 0 && performance.now() >= this.aiReadyAt) {
         this.aiFlickQueued = true;
         this.runAiTurn();
       }
-    } else {
+    } else if (this.turn === 'home' && this.phase === 'input') {
       this.handleKeyboardCharge(delta);
     }
   }
@@ -412,12 +411,12 @@ export class GameScene extends Phaser.Scene {
     this.resolveMs = 0;
     this.charge = 0;
     this.charging = false;
-    this.aiThinkMs = 0;
     this.aiFlickQueued = false;
     this.clearSelection();
     this.turnToken += 1;
 
     if (side === 'home') {
+      this.aiReadyAt = 0;
       this.resumeClock();
       this.aim.enabled = true;
       this.bannerText.setAlpha(0);
@@ -435,7 +434,8 @@ export class GameScene extends Phaser.Scene {
       this.turnText.setColor('#ef9a9a');
       this.hintText.setText('Wait — opponent flick');
       this.bannerText.setText('RED TURN').setAlpha(0.9);
-      // AI flick is driven from update() via aiThinkMs (no delayedCall)
+      // Wall-clock think time (survives huge Phaser delta spikes under automation)
+      this.aiReadyAt = performance.now() + 1400;
     }
   }
 
