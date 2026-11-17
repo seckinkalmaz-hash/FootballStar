@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DISC, type TeamSide } from '../config';
+import { PLAYER, type TeamSide } from '../config';
 
 export class PlayerSprite extends Phaser.Physics.Arcade.Image {
   readonly team: TeamSide;
@@ -7,7 +7,7 @@ export class PlayerSprite extends Phaser.Physics.Arcade.Image {
   selected = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, team: TeamSide, slot: number) {
-    const key = team === 'home' ? 'disc-home' : 'disc-away';
+    const key = team === 'home' ? 'player-home' : 'player-away';
     super(scene, x, y, key);
     this.team = team;
     this.slot = slot;
@@ -16,15 +16,15 @@ export class PlayerSprite extends Phaser.Physics.Arcade.Image {
     scene.physics.add.existing(this);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setCircle(DISC.radius);
-    body.setOffset(4, 4);
+    // Collision near feet
+    body.setCircle(PLAYER.radius);
+    body.setOffset(24 - PLAYER.radius, 64 - PLAYER.radius * 2 - 6);
     body.setCollideWorldBounds(true);
-    body.setBounce(DISC.bounce, DISC.bounce);
-    // Linear drag (damping OFF). High drag = stops sooner after the flick.
+    body.setBounce(PLAYER.bounce, PLAYER.bounce);
     body.setDamping(false);
-    body.setDrag(140);
-    body.setMaxSpeed(DISC.maxSpeed);
-    body.setMass(DISC.mass);
+    body.setDrag(160);
+    body.setMaxSpeed(PLAYER.maxSpeed);
+    body.setMass(PLAYER.mass);
 
     this.setDepth(5);
   }
@@ -32,7 +32,7 @@ export class PlayerSprite extends Phaser.Physics.Arcade.Image {
   setSelected(on: boolean): void {
     this.selected = on;
     this.setTint(on ? 0xfff59d : 0xffffff);
-    this.setScale(on ? 1.08 : 1);
+    this.setScale(on ? 1.06 : 1);
   }
 
   stopHard(): void {

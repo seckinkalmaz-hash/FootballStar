@@ -4,43 +4,51 @@ export const GAME_HEIGHT = 540;
 export const PITCH = {
   margin: 40,
   lineColor: 0xe8f5e9,
-  grassDark: 0x1b5e20,
-  grassLight: 0x2e7d32,
+  grassDark: 0x2e7d32,
+  grassLight: 0x43a047,
   goalDepth: 32,
   goalWidth: 120,
 };
 
-export const DISC = {
-  radius: 22,
-  mass: 1.2,
-  bounce: 0.72,
-  friction: 0.985,
-  maxSpeed: 780,
+/** Blocky Mini Soccer Stars–style figure footprint */
+export const PLAYER = {
+  bodyW: 22,
+  bodyH: 34,
+  radius: 14,
+  mass: 1.15,
+  bounce: 0.55,
+  maxSpeed: 720,
 };
 
 export const BALL = {
   radius: 11,
-  mass: 0.55,
-  bounce: 0.85,
-  friction: 0.988,
-  maxSpeed: 900,
+  mass: 0.5,
+  bounce: 0.82,
+  maxSpeed: 920,
+};
+
+/** Ball-centered aim (yellow arrow + % + dotted cone) */
+export const AIM = {
+  maxPull: 130,
+  minPower: 160,
+  maxPower: 880,
+  coneSpread: 0.32, // radians half-angle at low power
+  coneSpreadMin: 0.12,
+  arrowMin: 48,
+  arrowMax: 160,
 };
 
 export const FLICK = {
-  maxPull: 110,
-  minPower: 180,
-  maxPower: 860,
   settleSpeed: 22,
   settleMs: 320,
 };
 
 export const MATCH = {
-  /** First to this many goals wins (timer is backup). */
   goalsToWin: 3,
   durationSec: 180,
   teams: {
-    home: { name: 'Blue', color: 0x1e88e5, accent: 0x90caf9 },
-    away: { name: 'Red', color: 0xe53935, accent: 0xef9a9a },
+    home: { name: 'Blue', color: 0x1e88e5, accent: 0x90caf9, shorts: 0xffffff },
+    away: { name: 'Red', color: 0xe53935, accent: 0xffcdd2, shorts: 0x212121 },
   },
 };
 

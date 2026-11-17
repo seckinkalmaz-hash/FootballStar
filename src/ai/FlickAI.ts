@@ -1,79 +1,59 @@
 import Phaser from 'phaser';
-import { FLICK, GAME_HEIGHT, GAME_WIDTH, PITCH, type TeamSide } from '../config';
+import { AIM, GAME_HEIGHT, GAME_WIDTH, PITCH, type TeamSide } from '../config';
 import type { BallSprite } from '../entities/BallSprite';
 import type { PlayerSprite } from '../entities/PlayerSprite';
+import type { KickResult } from '../ui/KickAim';
 
-/** Choose a Red disc and a flick vector (dx, dy toward travel direction). */
-export function planAiFlick(
+/** Plan a kick from the ball toward goal / pass lane (Mini Soccer Stars–style). */
+export function planAiKick(
   team: TeamSide,
   discs: PlayerSprite[],
   ball: BallSprite,
   rng = Math.random,
-): { disc: PlayerSprite; dirX: number; dirY: number; power: number } {
+): { kicker: PlayerSprite; kick: KickResult } {
   const attackX = team === 'home' ? GAME_WIDTH - PITCH.margin : PITCH.margin;
-  const defendX = team === 'home' ? PITCH.margin + 80 : GAME_WIDTH - PITCH.margin - 80;
-
-  // Prefer disc closest to a useful strike on the ball
-  let best = discs[0];
-  let bestScore = -Infinity;
+  let kicker = discs[0];
+  let best = Number.POSITIVE_INFINITY;
   for (const d of discs) {
     const dist = Phaser.Math.Distance.Between(d.x, d.y, ball.x, ball.y);
-    const align =
-      team === 'home'
-        ? ball.x - d.x // want to be left of ball to push right
-        : d.x - ball.x;
-    const score = -dist + Math.max(0, align) * 0.35;
-    if (score > bestScore) {
-      bestScore = score;
-      best = d;
+    if (dist < best) {
+      best = dist;
+      kicker = d;
     }
   }
 
-  const goalY = GAME_HEIGHT / 2 + (rng() - 0.5) * 40;
-  // Approach point: slightly behind ball relative to attack direction
-  const behind =
-    team === 'home'
-      ? { x: ball.x - 28, y: ball.y }
-      : { x: ball.x + 28, y: ball.y };
-
-  const canShootLane =
-    (team === 'home' && best.x < ball.x && ball.x > GAME_WIDTH * 0.35) ||
-    (team === 'away' && best.x > ball.x && ball.x < GAME_WIDTH * 0.65);
+  const goalY = GAME_HEIGHT / 2 + (rng() - 0.5) * 50;
+  const attacking =
+    (team === 'home' && ball.x > GAME_WIDTH * 0.4) ||
+    (team === 'away' && ball.x < GAME_WIDTH * 0.6);
 
   let targetX: number;
   let targetY: number;
-  let powerFactor: number;
-
-  if (canShootLane && rng() > 0.25) {
-    // Aim through ball toward goal
+  let power01: number;
+  if (attacking && rng() > 0.2) {
     targetX = attackX;
     targetY = goalY;
-    powerFactor = 0.7 + rng() * 0.3;
-  } else if (Phaser.Math.Distance.Between(best.x, best.y, ball.x, ball.y) < 140) {
-    // Pass-ish / poke toward attack
-    targetX = Phaser.Math.Linear(ball.x, attackX, 0.55);
-    targetY = Phaser.Math.Linear(ball.y, goalY, 0.4);
-    powerFactor = 0.45 + rng() * 0.35;
+    power01 = 0.65 + rng() * 0.3;
   } else {
-    // Reposition toward ball / defend
-    targetX = Phaser.Math.Linear(behind.x, defendX, 0.15);
-    targetY = behind.y;
-    powerFactor = 0.35 + rng() * 0.25;
+    targetX = Phaser.Math.Linear(ball.x, attackX, 0.5);
+    targetY = Phaser.Math.Linear(ball.y, goalY, 0.35);
+    power01 = 0.4 + rng() * 0.35;
   }
 
-  let dirX = targetX - best.x;
-  let dirY = targetY - best.y;
+  let dirX = targetX - ball.x;
+  let dirY = targetY - ball.y;
   const len = Math.hypot(dirX, dirY) || 1;
   dirX /= len;
   dirY /= len;
-
-  // Noise so AI isn't laser-perfect
-  const noise = (rng() - 0.5) * 0.22;
+  const noise = (rng() - 0.5) * (attacking ? 0.16 : 0.28);
   const cos = Math.cos(noise);
   const sin = Math.sin(noise);
   const ndx = dirX * cos - dirY * sin;
   const ndy = dirX * sin + dirY * cos;
+  const power = AIM.minPower + (AIM.maxPower - AIM.minPower) * power01;
 
-  const power = FLICK.minPower + (FLICK.maxPower - FLICK.minPower) * powerFactor;
-  return { disc: best, dirX: ndx, dirY: ndy, power };
+  return {
+    kicker,
+    kick: { dirX: ndx, dirY: ndy, power, power01 },
+  };
 }

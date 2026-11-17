@@ -1,11 +1,10 @@
 # FootballStar
 
-Personal **Soccer Stars–style** flick soccer prototype (Phase 1: single-player).
+**Mini Soccer Stars–style** arcade soccer prototype (Phase 1).
 
-Turn-based table soccer: drag a disc back to set aim + power, release to şut/pas. Physics resolves, then the opponent plays.
+Yellow-arrow aim + power % + dotted cone · blocky players · Training + Match.
 
-**Stack:** TypeScript · Phaser 3 · Vite  
-**Art:** Original simple geometry only
+**Stack:** TypeScript · Phaser 3 · Vite
 
 ## Play
 
@@ -14,25 +13,14 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (default `http://127.0.0.1:5173`).  
-Demo: `/?autostart=1`
-
-```bash
-npm run build
-npm run preview
-```
+- Training (reference look): `http://127.0.0.1:5173/?autostart=1`
+- Match 3v3: `http://127.0.0.1:5173/?autostart=3`
 
 ## Controls
 
-| Action | Mouse / touch | Keyboard |
-| --- | --- | --- |
-| Select disc | Click / tap a Blue disc | `1` / `2` / `3` |
-| Flick (şut / pas) | Drag **back**, release | Arrows aim · hold Space · release |
-| Menu | MENU | `M` |
-| Rematch | REMATCH | `R` |
+Drag to aim the yellow arrow (power shows as %). `F` quick shot · Space charge · `M` menu.
 
-Pick **2v2** or **3v3**. First to 3 goals wins (3:00 backup timer). You flick all Blue discs; Red is AI.
+## Modes
 
-## Scope
-
-See `/docs` plan in the project store: flick match sim, not continuous WASD running soccer.
+- **Training** — hit the bullseye over wall dummies (3 tries)
+- **Match** — 2v2 / 3v3, Blue aims then Red AI
