@@ -418,6 +418,7 @@ export class GameScene extends Phaser.Scene {
       this.resumeClock();
       this.aim.enabled = true;
       this.bannerText.setAlpha(0);
+      this.setDomTurn(null);
       this.selectDisc(this.homeDiscs[0] ?? null);
       this.turnText.setText('Blue turn — flick a disc');
       this.turnText.setColor('#e8f5e9');
@@ -434,14 +435,14 @@ export class GameScene extends Phaser.Scene {
       this.turnText.setColor('#ef9a9a');
       this.hintText.setText('Wait — opponent flick');
       this.bannerText.setText('RED TURN').setAlpha(0.9);
+      this.setDomTurn('RED TURN', '#c62828');
       this.writeDebug();
       this.logFs(`beginTurn away token=${this.turnToken}`);
-      document.body.style.outline = '8px solid #e53935';
       const token = this.turnToken;
       this.aiTimer = window.setTimeout(() => {
         this.logFs(`aiTimer fire token=${token} cur=${this.turnToken} phase=${this.phase}`);
         if (token !== this.turnToken || this.phase !== 'red_wait') return;
-        document.body.style.outline = '';
+        this.setDomTurn('RED FLICK…', '#b71c1c');
         this.runAiTurn();
       }, 2500);
     }
@@ -451,6 +452,28 @@ export class GameScene extends Phaser.Scene {
     const w = window as Window & { __fsLog?: string[] };
     w.__fsLog = w.__fsLog ?? [];
     w.__fsLog.push(`${Date.now()}: ${msg}`);
+  }
+
+  /** DOM banner above the canvas — survives Phaser draw quirks under automation. */
+  private setDomTurn(msg: string | null, bg = '#1b5e20'): void {
+    let el = document.getElementById('fs-turn');
+    if (!msg) {
+      el?.remove();
+      document.body.style.outline = '';
+      return;
+    }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fs-turn';
+      el.style.cssText =
+        'position:fixed;left:50%;top:18%;transform:translate(-50%,-50%);z-index:10000;' +
+        'font:700 42px Georgia,serif;color:#fff;padding:18px 36px;border-radius:12px;' +
+        'pointer-events:none;letter-spacing:0.04em;box-shadow:0 8px 32px #000a;';
+      document.body.appendChild(el);
+    }
+    el.style.background = bg;
+    el.textContent = msg;
+    document.body.style.outline = `10px solid ${bg}`;
   }
 
   private selectBySlot(slot: number): void {
