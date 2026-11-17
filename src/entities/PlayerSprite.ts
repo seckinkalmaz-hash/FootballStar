@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { PLAYER, type TeamSide } from '../config';
 
+/** Static wall-like blocker — Mini Soccer Stars players do not billiard-slide. */
 export class PlayerSprite extends Phaser.Physics.Arcade.Image {
   readonly team: TeamSide;
   readonly slot: number;
@@ -16,15 +17,17 @@ export class PlayerSprite extends Phaser.Physics.Arcade.Image {
     scene.physics.add.existing(this);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
-    // Collision near feet
     body.setCircle(PLAYER.radius);
     body.setOffset(24 - PLAYER.radius, 64 - PLAYER.radius * 2 - 6);
     body.setCollideWorldBounds(true);
-    body.setBounce(PLAYER.bounce, PLAYER.bounce);
+    body.setBounce(0, 0);
+    body.setImmovable(true);
+    body.setAllowGravity(false);
     body.setDamping(false);
-    body.setDrag(160);
-    body.setMaxSpeed(PLAYER.maxSpeed);
+    body.setDrag(0);
+    body.setMaxSpeed(0);
     body.setMass(PLAYER.mass);
+    body.setVelocity(0, 0);
 
     this.setDepth(5);
   }

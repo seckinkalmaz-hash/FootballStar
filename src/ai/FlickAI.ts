@@ -4,7 +4,7 @@ import type { BallSprite } from '../entities/BallSprite';
 import type { PlayerSprite } from '../entities/PlayerSprite';
 import type { KickResult } from '../ui/KickAim';
 
-/** Plan a kick from the ball toward goal / pass lane (Mini Soccer Stars–style). */
+/** Always plan a shot (or short push) toward the opponent goal. */
 export function planAiKick(
   team: TeamSide,
   discs: PlayerSprite[],
@@ -22,30 +22,21 @@ export function planAiKick(
     }
   }
 
-  const goalY = GAME_HEIGHT / 2 + (rng() - 0.5) * 50;
-  const attacking =
-    (team === 'home' && ball.x > GAME_WIDTH * 0.4) ||
-    (team === 'away' && ball.x < GAME_WIDTH * 0.6);
+  // Prefer corners / near-post of the goal mouth
+  const half = PITCH.goalWidth * 0.38;
+  const goalY = GAME_HEIGHT / 2 + (rng() - 0.5) * half * 2;
+  const distToGoal = Math.abs(attackX - ball.x);
+  const closeRange = distToGoal < GAME_WIDTH * 0.42;
 
-  let targetX: number;
-  let targetY: number;
-  let power01: number;
-  if (attacking && rng() > 0.2) {
-    targetX = attackX;
-    targetY = goalY;
-    power01 = 0.65 + rng() * 0.3;
-  } else {
-    targetX = Phaser.Math.Linear(ball.x, attackX, 0.5);
-    targetY = Phaser.Math.Linear(ball.y, goalY, 0.35);
-    power01 = 0.4 + rng() * 0.35;
-  }
-
-  let dirX = targetX - ball.x;
-  let dirY = targetY - ball.y;
+  const power01 = closeRange ? 0.72 + rng() * 0.25 : 0.55 + rng() * 0.3;
+  let dirX = attackX - ball.x;
+  let dirY = goalY - ball.y;
   const len = Math.hypot(dirX, dirY) || 1;
   dirX /= len;
   dirY /= len;
-  const noise = (rng() - 0.5) * (attacking ? 0.16 : 0.28);
+
+  // Small aim noise — still clearly a goal shot
+  const noise = (rng() - 0.5) * (closeRange ? 0.1 : 0.18);
   const cos = Math.cos(noise);
   const sin = Math.sin(noise);
   const ndx = dirX * cos - dirY * sin;

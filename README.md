@@ -1,8 +1,8 @@
 # FootballStar
 
-**Mini Soccer Stars–style** arcade soccer prototype (Phase 1).
+**Mini Soccer Stars–style** goal-shot prototype (Phase 1).
 
-Yellow-arrow aim + power % + dotted cone · blocky players · Training + Match.
+You aim the ball at the **goal** with a yellow arrow — players are blockers, not billiard discs.
 
 **Stack:** TypeScript · Phaser 3 · Vite
 
@@ -17,14 +17,14 @@ npm install
 npm run dev
 ```
 
-- Training: `/?autostart=1`
+- Training (shoot into goal): `/?autostart=1`
 - Match 3v3: `/?autostart=3`
 
 ## Controls
 
-Drag to aim the yellow arrow (power shows as %). `F` quick shot · Space charge · `M` menu.
+Drag to aim at the goal (power %). `F` quick shot · Space charge · `M` menu.
 
 ## Modes
 
-- **Training** — hit the bullseye over wall dummies (3 tries)
-- **Match** — 2v2 / 3v3, Blue aims then Red AI
+- **Training** — shoot into the goal mouth over wall dummies (3 tries)
+- **Match** — turn shots at the opponent goal; defenders stay put and block

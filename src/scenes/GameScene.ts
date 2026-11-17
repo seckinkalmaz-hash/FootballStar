@@ -87,8 +87,8 @@ export class GameScene extends Phaser.Scene {
     this.spawnTeams();
     this.ball = new BallSprite(this, GAME_WIDTH / 2, GAME_HEIGHT / 2);
 
-    this.physics.add.collider(this.players, this.players);
-    this.physics.add.collider(this.players, this.ball);
+    // Players are immovable walls — only the ball flies (goal shot, not billiards)
+    this.physics.add.collider(this.ball, this.players);
     this.physics.world.setBounds(
       PITCH.margin,
       PITCH.margin,
@@ -219,28 +219,29 @@ export class GameScene extends Phaser.Scene {
     away: { x: number; y: number }[];
   } {
     const cy = GAME_HEIGHT / 2;
+    // Leave a clear central shooting lane toward each goal
     if (size === 2) {
       return {
         home: [
-          { x: 200, y: cy - 70 },
-          { x: 280, y: cy + 70 },
+          { x: 130, y: cy }, // keeper-ish
+          { x: 310, y: cy + 95 },
         ],
         away: [
-          { x: GAME_WIDTH - 200, y: cy + 70 },
-          { x: GAME_WIDTH - 280, y: cy - 70 },
+          { x: GAME_WIDTH - 130, y: cy },
+          { x: GAME_WIDTH - 310, y: cy - 95 },
         ],
       };
     }
     return {
       home: [
-        { x: 160, y: cy },
-        { x: 260, y: cy - 90 },
-        { x: 260, y: cy + 90 },
+        { x: 120, y: cy }, // near own goal
+        { x: 300, y: cy - 110 },
+        { x: 300, y: cy + 110 },
       ],
       away: [
-        { x: GAME_WIDTH - 160, y: cy },
-        { x: GAME_WIDTH - 260, y: cy + 90 },
-        { x: GAME_WIDTH - 260, y: cy - 90 },
+        { x: GAME_WIDTH - 120, y: cy },
+        { x: GAME_WIDTH - 300, y: cy - 110 },
+        { x: GAME_WIDTH - 300, y: cy + 110 },
       ],
     };
   }
@@ -379,17 +380,17 @@ export class GameScene extends Phaser.Scene {
       );
       this.aim.showAt(this.ball.x, this.ball.y);
       this.aim.setKeyboardAim(this.aimAngle, this.charge);
-      this.turnText.setText('Blue turn — aim the yellow arrow');
+      this.turnText.setText('Blue — SHOOT at the Red goal →');
       this.turnText.setColor('#e8f5e9');
-      this.hintText.setText('Drag to aim · % = power · F / Enter quick shot · Space charge');
+      this.hintText.setText('Aim the yellow arrow at the goal · drag for power · F quick shot');
     } else {
       this.phase = 'red_wait';
       this.pauseClock();
       this.aim.hide();
-      this.turnText.setText('RED TURN — AI aiming…');
+      this.turnText.setText('RED — shooting at Blue goal…');
       this.turnText.setColor('#ef9a9a');
-      this.hintText.setText('Wait — opponent kick');
-      this.bannerText.setText('RED TURN').setAlpha(0.85);
+      this.hintText.setText('Opponent shoots at your goal');
+      this.bannerText.setText('RED SHOT').setAlpha(0.85);
       const token = this.turnToken;
       this.aiTimer = setTimeout(() => {
         if (token !== this.turnToken || this.phase !== 'red_wait') return;
@@ -437,19 +438,15 @@ export class GameScene extends Phaser.Scene {
     this.resolveHandled = false;
     this.flickingSide = side;
     this.pauseClock();
-    this.turnText.setText(side === 'away' ? 'Red kick…' : 'Ball in play…');
-    this.hintText.setText('');
+    this.turnText.setText(side === 'away' ? 'Red shot…' : 'Shot!');
+    this.hintText.setText('Ball flies — blockers stay put');
 
+    // Only the ball moves. Players are static walls.
+    for (const p of this.players) p.stopHard();
     const body = this.ball.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(r.dirX * r.power, r.dirY * r.power);
 
-    // Nudge kicker slightly along kick
-    const team = side === 'home' ? this.homeTeam : this.awayTeam;
-    const kicker = this.nearest(team);
-    const kb = kicker.body as Phaser.Physics.Arcade.Body;
-    kb.setVelocity(r.dirX * r.power * 0.22, r.dirY * r.power * 0.22);
-
-    this.tweens.add({ targets: this.ball, scale: 1.12, duration: 70, yoyo: true });
+    this.tweens.add({ targets: this.ball, scale: 1.14, duration: 70, yoyo: true });
   }
 
   private quickKick(power01: number): void {
@@ -486,11 +483,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private allSettled(): boolean {
-    if ((this.ball.body as Phaser.Physics.Arcade.Body).speed > FLICK.settleSpeed) return false;
-    for (const p of this.players) {
-      if ((p.body as Phaser.Physics.Arcade.Body).speed > FLICK.settleSpeed) return false;
-    }
-    return true;
+    // Only the ball needs to settle — players never slide
+    return (this.ball.body as Phaser.Physics.Arcade.Body).speed <= FLICK.settleSpeed;
   }
 
   private afterResolve(): void {

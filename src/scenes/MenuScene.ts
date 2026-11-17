@@ -29,7 +29,7 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(cx, 118, 'Mini Soccer Stars–style · yellow arrow aim', {
+      .text(cx, 118, 'Kaleye şut · yellow arrow aim', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '17px',
         color: '#c8e6c9',
@@ -37,7 +37,7 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(cx, 168, 'Drag to aim the shot — power % + dotted cone.\nBlocky players · şut / pas · short matches.', {
+      .text(cx, 168, 'Aim the ball at the GOAL. Players block — they do not slide.\nDrag yellow arrow · power % · dotted cone.', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '15px',
         color: '#a5d6a7',
@@ -60,7 +60,7 @@ export class MenuScene extends Phaser.Scene {
     this.makeButton(cx, 420, 'Match', () => this.scene.start('Game', { squadSize: this.squadSize }), 200, 52);
 
     this.add
-      .text(cx, 490, 'Training = target practice (reference screenshots) · Match = 2v2/3v3', {
+      .text(cx, 490, 'Training = shoot into goal · Match = turn shots at opponent goal', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '12px',
         color: '#81c784',

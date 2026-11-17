@@ -6,41 +6,46 @@ export const PITCH = {
   lineColor: 0xe8f5e9,
   grassDark: 0x2e7d32,
   grassLight: 0x43a047,
-  goalDepth: 32,
-  goalWidth: 120,
+  goalDepth: 36,
+  goalWidth: 168,
 };
 
-/** Blocky Mini Soccer Stars–style figure footprint */
+/**
+ * Players are static shot-blockers (not billiard discs).
+ * Only the ball is kicked toward the goal each turn.
+ */
 export const PLAYER = {
   bodyW: 22,
   bodyH: 34,
-  radius: 14,
-  mass: 1.15,
-  bounce: 0.55,
-  maxSpeed: 720,
+  radius: 15,
+  mass: 8,
+  bounce: 0.05,
+  maxSpeed: 0,
 };
 
 export const BALL = {
   radius: 11,
-  mass: 0.5,
-  bounce: 0.82,
-  maxSpeed: 920,
+  mass: 0.45,
+  bounce: 0.28,
+  maxSpeed: 980,
+  /** Linear drag so shots die instead of pool-table ping-pong */
+  drag: 140,
 };
 
 /** Ball-centered aim (yellow arrow + % + dotted cone) */
 export const AIM = {
   maxPull: 130,
-  minPower: 160,
-  maxPower: 880,
-  coneSpread: 0.32, // radians half-angle at low power
-  coneSpreadMin: 0.12,
-  arrowMin: 48,
-  arrowMax: 160,
+  minPower: 220,
+  maxPower: 920,
+  coneSpread: 0.28,
+  coneSpreadMin: 0.1,
+  arrowMin: 52,
+  arrowMax: 170,
 };
 
 export const FLICK = {
-  settleSpeed: 22,
-  settleMs: 320,
+  settleSpeed: 28,
+  settleMs: 280,
 };
 
 export const MATCH = {

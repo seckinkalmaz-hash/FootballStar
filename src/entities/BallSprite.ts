@@ -13,7 +13,7 @@ export class BallSprite extends Phaser.Physics.Arcade.Image {
     body.setCollideWorldBounds(true);
     body.setBounce(BALL.bounce, BALL.bounce);
     body.setDamping(false);
-    body.setDrag(55);
+    body.setDrag(BALL.drag);
     body.setMaxSpeed(BALL.maxSpeed);
     body.setMass(BALL.mass);
 
